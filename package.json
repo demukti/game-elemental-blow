@@ -1,0 +1,15 @@
+{
+  "name": "elemental-blow",
+  "version": "1.0.0",
+  "description": "Top-down arena wave-survival brawler: pick the right element, survive the waves.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}
