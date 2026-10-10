@@ -6,7 +6,7 @@ Without it, or for anyone who opens the game without a board code, the game keep
 
 ## Setup
 
-**Quick way (DirectAdmin, cPanel):** `npm run dist` (or `npm run dist -- CODE` to choose the board code) builds `dist/elemental-blow-board.zip`, a folder with `scores.php` and the code already filled in, plus `dist/UPLOAD.txt` with step-by-step instructions. Upload the zip into a domain's `public_html` with the file manager and Extract it; nothing needs editing. `dist/` is git-ignored because it contains the board code.
+**Quick way (DirectAdmin, cPanel):** `npm run dist` (or `npm run dist -- CODE` to choose the board code) builds `dist/elemental-blow-board.zip`, `scores.php` with the code already filled in, plus `dist/UPLOAD.txt` with step-by-step instructions for the address in `BOARD_URL` (creating the subdomain, its HTTPS certificate, uploading). Upload the zip into the subdomain's folder with the file manager and Extract it; nothing needs editing. `dist/` is git-ignored because it contains the board code.
 
 **By hand:**
 

@@ -2,7 +2,7 @@
 // (setup: leaderboard/README.md). It is on only when BOARD_URL is set and the game was opened once
 // with ?board=CODE; this browser remembers the code. Otherwise the game keeps its local board only.
 
-export const BOARD_URL = ''; // e.g. 'https://games.example.com/scores.php'
+export const BOARD_URL = 'https://elementalblow.mukti.eu/scores.php'; // e.g. 'https://games.example.com/scores.php'
 
 const CODE_KEY = 'elemental-blow-board';
 const CODE_RE = /^[a-z0-9-]{3,32}$/;
