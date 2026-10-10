@@ -105,7 +105,9 @@ test('the boss arrives on wave 5, shifts element, uses several patterns and can 
   assert.equal(phases.length, 2, 'two element shifts (66% / 33%)');
   assert.ok(elements.size >= 2, 'boss changed element');
   for (const p of phases) assert.ok(ELEMENTS.includes(p.element));
-  assert.ok(['burst', 'summon', 'charge'].filter((p) => patterns.has(p)).length >= 3, `patterns: ${[...patterns]}`);
+  // shared patterns (summon becomes 'echo' turrets from phase 2) plus the element signature ('sig' wind-up, then 'winded')
+  assert.ok(['burst', 'summon', 'echo', 'charge', 'spiral'].filter((p) => patterns.has(p)).length >= 3, `patterns: ${[...patterns]}`);
+  assert.ok(patterns.has('sig') && patterns.has('winded'), `signature pattern + winded window seen: ${[...patterns]}`);
   assert.ok(all.some((e) => e.type === 'enemyDie' && e.enemyType === 'boss'), 'boss defeated');
   assert.ok(all.some((e) => e.type === 'waveClear' && e.wave === 5));
   assert.equal(g.phase, 'upgrade');

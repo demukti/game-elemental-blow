@@ -102,7 +102,7 @@ export const ENEMIES = {
     guardTime: 1.2, guardCd: 6, guardRange: 200, guardWalk: 0.4,
   },
   boss: {
-    r: 58, hp: 2400, speed: 60, dmg: 22, score: 500, cost: 0, mass: 30, kb: 0.08, stun: 0.25, slow: 0.8,
+    r: 58, hp: 2800, speed: 60, dmg: 22, score: 500, cost: 0, mass: 30, kb: 0.08, stun: 0.25, slow: 0.8, // hp sized for the 1.5x "winded" windows
     spawnTime: 1.6, contactCd: 1.0, healDrop: 0, blowDrop: 0,
     boltDmg: 8, boltSpeed: 250, boltR: 9,
   },
@@ -128,6 +128,42 @@ export const BOSS = {
   spiralTime: 2.4,
   spiralRate: 0.11,
   drops: { heal: 3, blow: 2 }, // on death; every element shift also drops 1 heal + 1 blow orb
+  // --- wind-ups: every boss wind-up shrinks a little per later boss, never below windupMin ---
+  windupPerBoss: 0.08, // seconds taken off each wind-up per later boss (k = 2, 3, ...)
+  windupMin: 0.6, // hard floor so every attack stays readable
+  // --- signature patterns: one per element, used in addition to the shared burst / charge / summon / spiral ---
+  signatureWindup: 0.9, // wind-up before a signature pattern fires
+  signatureWeight: 3, // pattern-roll weight (burst is 3)
+  winded: 1.2, // seconds the boss is "winded" (stands still, takes windedMult damage) after a signature pattern
+  windedMult: 1.5,
+  // fire: meteor rain. `count` ground circles (+perBoss per later boss, max countMax) land around the
+  // player, biased `lead` seconds ahead of its velocity, detonate after `fuse` s in `radius` and leave a
+  // burning patch (burnR px, burnLife s, burnDmg per tick; ticks are limited by the player's hit invulnerability).
+  meteor: {
+    count: 5, perBoss: 1, countMax: 9, fuse: 1.0, radius: 70, dmg: 16, kb: 320, lead: 0.5,
+    spread: 190, spreadPer: 16, // scatter radius around the aim point: spread + spreadPer * count
+    burnR: 55, burnLife: 1.5, burnDmg: 5, shock: 0.35,
+  },
+  // water: tide. Two wall segments sweep from the boss toward the player with a `gap` between them; one
+  // wall is centred on the player, so the player has to sidestep (or dash through). half = half-length
+  // of each wall (+perBossHalf per later boss, max halfMax), thick = wall thickness along its travel.
+  tide: { speed: 250, half: 170, perBossHalf: 40, halfMax: 300, gap: 120, thick: 44, dmg: 16, kb: 820, maxLife: 5, shock: 0.5 },
+  // earth: quake. The slam sends `rings` (+perBoss, max ringsMax) thin expanding ring hazards from the
+  // boss, each `ringGap` s apart, each with a walkable gap of `gapW` radians; dashing through is a
+  // perfect dodge. `pillars` stone pillars (pillarMin..pillarMax px from the boss) hurt on contact.
+  quake: {
+    rings: 3, perBoss: 1, ringsMax: 5, ringGap: 0.5, ringSpeed: 320, ringThick: 22, ringMaxR: 620, ringDmg: 14, ringKb: 380, gapW: 0.95,
+    pillars: 5, pillarR: 26, pillarLife: 4, pillarRise: 0.3, pillarDmg: 10, pillarKb: 420, pillarMin: 140, pillarMax: 360, pillarClear: 110,
+    shock: 0.8,
+  },
+  // air: gale. For `time` s the boss drags the player toward itself with `pull` px/s^2 (+perBoss, max
+  // pullMax; the player's knockback decay turns that into a drift of about pull/9 px/s) while firing
+  // `pairs` aimed bolt pairs `pairGap` s apart, each bolt `pairSpread` rad either side of the aim. A dash ignores the pull.
+  gale: { time: 1.5, pull: 1800, perBoss: 250, pullMax: 2400, pairs: 3, pairGap: 0.45, pairSpread: 0.14, boltSpeed: 1.15 },
+  // phase 2+: summon becomes "elemental echo": short-lived stationary spitter turrets in the boss's element
+  echo: { count: 2, life: 6, windup: 0.8, range: 150 },
+  // phase 3 ("enraged"): shorter idle, and patterns come in back-to-back pairs
+  enrage: { idle: 0.7, shock: 0.8 },
 };
 
 // Wave director. Regular waves spend a budget on bodies (ENEMIES[type].cost); the rest is the clock.
