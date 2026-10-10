@@ -85,6 +85,8 @@ src/render.js           canvas drawing, particles, shake
 src/ui.js               menus, HUD, upgrade screen
 src/manual.js           in-game field manual (H), numbers read from config.js
 src/audio.js            WebAudio sound and music
+src/board.js            friends board client (?board=CODE, BOARD_URL)
+leaderboard/            scores.php, the friends board server, and its setup guide
 test/                   node:test suites
 ```
 
@@ -92,7 +94,9 @@ test/                   node:test suites
 
 **High scores.** A run that makes the top 10 asks for a name on the game-over screen (Enter saves; leaving the screen saves too, as ANON if empty). The board shows on the game-over screen and the top 5 on the menu. It is per browser, not shared online.
 
-The browser stores these in `localStorage`: `elemental-blow-best` (best run), `elemental-blow-scores` (top 10 board), `elemental-blow-name` (last name entered) and `elemental-blow-muted`.
+**Friends board.** A group can share one online board kept by `leaderboard/scores.php`, a single PHP file on a server you control; setup and security notes are in `leaderboard/README.md`. Once `BOARD_URL` in `src/board.js` points at it, opening the game with `?board=CODE` (a code listed in the script) switches both boards to the group's board (everyone, best first, in a scrolling list), and every scoring run asks for a name. Each name keeps its best run. If the server cannot be reached, the local board shows instead.
+
+The browser stores these in `localStorage`: `elemental-blow-best` (best run), `elemental-blow-scores` (top 10 board), `elemental-blow-name` (last name entered), `elemental-blow-board` (friends board code) and `elemental-blow-muted`.
 
 ## Tweaking balance
 

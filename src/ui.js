@@ -314,22 +314,72 @@ export function createUI(callbacks) {
     over.append(box, ov.board);
   }
 
-  function renderBoard(box, scores, mark, limit) {
+  // opts: limit, mark (0-based row to highlight), extra (the player's own row below the list: { rank, name, score, wave }),
+  // note, scroll (a scrolling list that opens on the highlighted row)
+  function renderBoard(box, title, scores, opts) {
+    const o = opts || {};
     box.textContent = '';
-    const rows = (Array.isArray(scores) ? scores : []).slice(0, limit);
-    box.hidden = !rows.length;
-    if (!rows.length) return;
-    box.appendChild(h('h2', null, 'High Scores'));
-    const list = h('ol', 'board');
-    rows.forEach((s, i) => {
-      const li = h('li', 'board-row' + (i === mark ? ' me' : ''));
-      li.append(
-        h('span', 'board-rank', String(i + 1)), h('span', 'board-name', String((s && s.name) || '???')),
-        h('span', 'board-wave', 'W' + num(s && s.wave)), h('span', 'board-score', fmt(s && s.score))
-      );
-      list.appendChild(li);
-    });
-    box.appendChild(list);
+    const rows = (Array.isArray(scores) ? scores : []).slice(0, o.limit);
+    box.hidden = !rows.length && !o.note;
+    if (box.hidden) return;
+    box.appendChild(h('h2', null, title));
+    if (rows.length) {
+      const list = h('ol', 'board' + (o.scroll ? ' scroll' : ''));
+      let mine = null;
+      const add = (s, rank, me) => {
+        const li = h('li', 'board-row' + (me ? ' me' : ''));
+        li.append(
+          h('span', 'board-rank', String(rank)), h('span', 'board-name', String((s && s.name) || '???')),
+          h('span', 'board-wave', 'W' + num(s && s.wave)), h('span', 'board-score', fmt(s && s.score))
+        );
+        list.appendChild(li);
+        if (me) mine = li;
+      };
+      rows.forEach((s, i) => add(s, i + 1, i === o.mark));
+      if (o.extra) add(o.extra, num(o.extra.rank), true);
+      box.appendChild(list);
+      if (o.scroll && mine) {
+        const li = mine;
+        requestAnimationFrame(() => { list.scrollTop = li.offsetTop - (list.clientHeight - li.offsetHeight) / 2; });
+      }
+    }
+    if (o.note) box.appendChild(h('p', 'board-note', o.note));
+  }
+
+  // Board panels: this device's scores (top `limit`), or the whole friends board (status 'loading' | 'ok' | 'error')
+  // when one is active.
+  const boards = {
+    menu: { box: menu._board, limit: 5, local: [], mark: -1, friends: null, fScores: [], fMe: null },
+    gameover: { box: ov.board, limit: 10, local: [], mark: -1, friends: null, fScores: [], fMe: null },
+  };
+  function paintBoard(which) {
+    const b = boards[which];
+    if (!b.friends) {
+      renderBoard(b.box, 'High Scores', b.local, { limit: b.limit, mark: b.mark });
+    } else if (b.friends === 'error') {
+      renderBoard(b.box, 'High Scores', b.local, { limit: b.limit, mark: b.mark, note: 'Friends board unreachable right now' });
+    } else {
+      const me = b.fMe;
+      const shown = me && me.rank <= b.fScores.length;
+      let note = '';
+      if (b.friends === 'loading') note = 'Loading…';
+      else if (!b.fScores.length) note = 'No scores yet. Be the first!';
+      renderBoard(b.box, 'Friends Board', b.fScores, {
+        scroll: true, mark: shown ? me.rank - 1 : -1, extra: me && !shown ? me : null, note,
+      });
+    }
+    if (which === 'menu') menu._best.hidden = !menu._board.hidden; // the board replaces the single best line
+  }
+  /** Friends board state for 'menu' or 'gameover'; data ({ scores, me }) comes with 'ok'. */
+  function setFriends(which, status, data) {
+    const b = boards[which];
+    if (!b || !b.friends) return;
+    b.friends = status;
+    if (data) {
+      b.fScores = Array.isArray(data.scores) ? data.scores : [];
+      b.fMe = data.me || null;
+    }
+    paintBoard(which);
   }
   // Saves the pending high score under the typed name (a no-op when no entry is pending).
   function commitName() {
@@ -340,7 +390,9 @@ export function createUI(callbacks) {
     call('onSubmitScore', ov.name.value);
   }
   function setScores(scores, mark) {
-    renderBoard(ov.board, scores, num(mark, -1), 10);
+    boards.gameover.local = scores;
+    boards.gameover.mark = num(mark, -1);
+    paintBoard('gameover');
   }
 
   root.append(hud, banners, flash, menu, upgrade, pause, over);
@@ -355,12 +407,12 @@ export function createUI(callbacks) {
   let seenState = false;
 
   // ------------------------------------------------------------ public: screens
-  function showMenu(best, scores) {
+  function showMenu(best, scores, friends) {
     const b = best && (num(best.score) > 0 || num(best.wave) > 0) ? best : null;
     namePending = false;
-    renderBoard(menu._board, scores, -1, 5);
     menu._best.textContent = '';
-    menu._best.hidden = !menu._board.hidden; // the board replaces the single best line
+    Object.assign(boards.menu, { local: scores, mark: -1, friends: friends ? 'loading' : null, fMe: null });
+    paintBoard('menu');
     if (b) {
       menu._best.append(
         h('span', 'best-k', 'BEST'), h('span', 'best-v', fmt(b.score)),
@@ -383,12 +435,14 @@ export function createUI(callbacks) {
     ov.best.textContent = best ? fmt(Math.max(num(best.score), r.isNewBest ? num(r.score) : 0)) : '-';
     ov.badge.hidden = !r.isNewBest;
     const rank = num(r.rank, -1);
+    boards.gameover.friends = r.friends ? 'loading' : null;
+    boards.gameover.fMe = null;
     setScores(r.scores, -1);
-    namePending = rank >= 0;
+    namePending = rank >= 0 || !!r.askName;
     ov.entry.hidden = !namePending;
     setOverlay('gameover');
     if (namePending) {
-      ov.entryLabel.textContent = '#' + (rank + 1) + ' ON THE BOARD! ENTER YOUR NAME';
+      ov.entryLabel.textContent = r.friends ? 'ENTER YOUR NAME FOR THE FRIENDS BOARD' : '#' + (rank + 1) + ' ON THE BOARD! ENTER YOUR NAME';
       ov.name.value = r.lastName || '';
       ov.name.focus();
       ov.name.select();
@@ -666,5 +720,5 @@ export function createUI(callbacks) {
   setOverlay(null);
   hud.hidden = true;
 
-  return { showMenu, showPause, showGameOver, showUpgrade, hideOverlays, updateHUD, handleEvents, setMuted, setScores };
+  return { showMenu, showPause, showGameOver, showUpgrade, hideOverlays, updateHUD, handleEvents, setMuted, setScores, setFriends };
 }

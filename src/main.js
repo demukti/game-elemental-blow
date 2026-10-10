@@ -10,6 +10,7 @@ import { createManual } from './manual.js';
 import { audio } from './audio.js';
 import { createInput } from './input.js';
 import { botInput } from './bot.js';
+import { createBoard, boardName } from './board.js';
 
 const STEP = 1 / 60;
 const MAX_FRAME = 0.1; // clamp long frame gaps (tab switches, breakpoints) to at most 6 sim steps
@@ -96,6 +97,7 @@ function safe(label, fn) {
 const canvas = document.getElementById('game');
 const renderer = createRenderer(canvas);
 const input = createInput({ canvas, renderer });
+const board = createBoard(); // friends board (src/board.js); inactive unless configured
 
 let app = 'menu';
 let state = null;
@@ -250,29 +252,56 @@ function enterGameOver() {
   storageSet(BEST_KEY, JSON.stringify(best));
   const scores = loadScores();
   const rank = scoreRank(scores, state.score);
-  pendingScore = rank >= 0 ? { score: state.score, wave: state.wave } : null;
+  // with a friends board every scoring run asks for a name; otherwise only runs that make the local board
+  pendingScore = rank >= 0 || (board.active && state.score > 0) ? { score: state.score, wave: state.wave } : null;
   safe('audio.stopMusic', () => audio.stopMusic());
   safe('ui.showGameOver', () =>
     ui.showGameOver({
       score: state.score, wave: state.wave, kills: state.kills, best, isNewBest,
-      scores, rank, lastName: storageGet(NAME_KEY) || '',
+      scores, rank, lastName: storageGet(NAME_KEY) || '', askName: !!pendingScore, friends: board.active,
     }),
   );
+  if (board.active) showFriends('gameover', board.top());
 }
 
 function submitScore(rawName) {
   if (!pendingScore) return;
-  const name = String(rawName || '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME) || 'ANON';
-  const entry = { name, ...pendingScore };
+  const typed = String(rawName || '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+  const entry = { name: typed || 'ANON', ...pendingScore };
   pendingScore = null;
+  storageSet(NAME_KEY, entry.name);
   const scores = loadScores();
   const rank = scoreRank(scores, entry.score);
-  if (rank < 0) return;
-  scores.splice(rank, 0, entry);
-  scores.length = Math.min(scores.length, MAX_SCORES);
-  storageSet(SCORES_KEY, JSON.stringify(scores));
-  storageSet(NAME_KEY, name);
-  safe('ui.setScores', () => ui.setScores(scores, rank));
+  if (rank >= 0) {
+    scores.splice(rank, 0, entry);
+    scores.length = Math.min(scores.length, MAX_SCORES);
+    storageSet(SCORES_KEY, JSON.stringify(scores));
+    safe('ui.setScores', () => ui.setScores(scores, rank));
+  }
+  const name = boardName(typed); // no name typed: nothing goes to the friends board
+  if (board.active && name) {
+    safe('ui.setFriends', () => ui.setFriends('gameover', 'loading'));
+    showFriends('gameover', board.submit({ name, score: entry.score, wave: entry.wave }));
+  }
+}
+
+// Friends board replies arrive late; only the newest request for each screen may paint it.
+const friendsSeq = { menu: 0, gameover: 0 };
+function showFriends(screen, request) {
+  const seq = ++friendsSeq[screen];
+  request.then(
+    (data) => {
+      if (seq === friendsSeq[screen]) safe('ui.setFriends', () => ui.setFriends(screen, 'ok', data));
+    },
+    () => {
+      if (seq === friendsSeq[screen]) safe('ui.setFriends', () => ui.setFriends(screen, 'error'));
+    },
+  );
+}
+
+function showMenuScreen() {
+  safe('ui.showMenu', () => ui.showMenu(loadBest(), loadScores(), board.active));
+  if (board.active) showFriends('menu', board.top());
 }
 
 function toMenu() {
@@ -280,7 +309,7 @@ function toMenu() {
   state = null;
   input.setActive(false);
   safe('audio.stopMusic', () => audio.stopMusic());
-  safe('ui.showMenu', () => ui.showMenu(loadBest(), loadScores()));
+  showMenuScreen();
 }
 
 function setMuted(m) {
@@ -465,7 +494,7 @@ window.elementalBlow = {
 
 onResize();
 setMuted(muted);
-safe('ui.showMenu', () => ui.showMenu(loadBest(), loadScores()));
+showMenuScreen();
 resetClock();
 requestAnimationFrame(frame);
 if (botMode) safe('bot.start', () => startGame());
