@@ -17,10 +17,12 @@ declare(strict_types=1);
 const BOARDS = ['change-me'];
 // Pages allowed to read the board from a browser (scheme and host, no trailing slash).
 const ALLOWED_ORIGINS = ['https://demukti.github.io'];
-// Absolute path of the folder for the score file, e.g. '/home/you/elemental-blow-data'. It must be
-// outside the web root of every site on the account, so the file can never be downloaded. The script
-// refuses a folder inside its own web root (it cannot know other sites' roots). It creates the folder
-// if the parent exists and is writable.
+// Folder for the score file. Leave '' when the script sits anywhere under a folder named public_html or
+// private_html (DirectAdmin, cPanel): it then uses elemental-blow-data next to the outermost one, e.g.
+// /home/you/domains/example.com/elemental-blow-data, outside every site's web root. Otherwise set an
+// absolute path outside the web root of every site on the account, e.g. '/home/you/elemental-blow-data'.
+// The script refuses a folder inside its own web root (it cannot know other sites' roots). It creates
+// the folder if the parent exists and is writable.
 const DATA_DIR = '';
 // -----------------------------------------------------------------------------------------------
 
@@ -72,7 +74,18 @@ function configured(): bool
             return false;
         }
     }
-    return preg_match('#^(/|[A-Za-z]:[\\\\/])#', DATA_DIR) === 1;
+    return data_path() !== '';
+}
+
+/** DATA_DIR if it is an absolute path; when it is empty, elemental-blow-data next to the outermost
+ *  public_html / private_html above this script; '' if neither applies. */
+function data_path(): string
+{
+    if (DATA_DIR !== '') {
+        return preg_match('#^(/|[A-Za-z]:[\\\\/])#', DATA_DIR) === 1 ? DATA_DIR : '';
+    }
+    $here = str_replace('\\', '/', __DIR__);
+    return preg_match('#^(/.*?)/(?:public_html|private_html)(?:/|$)#', $here, $m) === 1 ? $m[1] . '/elemental-blow-data' : '';
 }
 
 function valid_board($b): bool
@@ -122,21 +135,21 @@ function in_web_root(string $path): bool
 /** The score folder (created if missing), or a failed reply if it is unusable or inside the web root. */
 function data_dir(): string
 {
-    $dir = rtrim(DATA_DIR, '/\\');
+    $dir = rtrim(data_path(), '/\\');
     $parent = realpath(dirname($dir));
     if ($parent === false) {
-        fail(500, 'storage', 'the parent folder of DATA_DIR does not exist');
+        fail(500, 'storage', 'the parent folder of the data folder does not exist');
     }
     $dir = $parent . DIRECTORY_SEPARATOR . basename($dir);
     if (in_web_root($dir)) { // checked before creating anything
-        fail(500, 'storage', 'DATA_DIR is inside the web root (or the web root is unknown); move it outside');
+        fail(500, 'storage', 'the data folder is inside the web root (or the web root is unknown); set DATA_DIR outside');
     }
     if (!is_dir($dir) && !@mkdir($dir, 0755)) {
-        fail(500, 'storage', 'cannot create DATA_DIR');
+        fail(500, 'storage', 'cannot create the data folder ' . $dir);
     }
     $real = realpath($dir); // again after resolving links
     if ($real === false || in_web_root($real)) {
-        fail(500, 'storage', 'DATA_DIR is missing or resolves into the web root');
+        fail(500, 'storage', 'the data folder is missing or resolves into the web root');
     }
     return $real;
 }

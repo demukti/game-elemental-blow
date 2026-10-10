@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "dist": "sh leaderboard/make-dist.sh"
   },
   "engines": {
     "node": ">=18"

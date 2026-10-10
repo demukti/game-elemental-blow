@@ -24,11 +24,12 @@ function freePort() {
   });
 }
 
-/** A fresh temp folder with www/scores.php (configured unless told not to) and an empty data/ folder. */
-function setUp({ boards = ['wolfpack'], dataDir = 'data/eb', configure = true } = {}) {
+/** A fresh temp folder with <web>/scores.php (configured unless told not to; dataDir '' keeps the automatic
+ *  data folder) and an empty data/ folder. */
+function setUp({ boards = ['wolfpack'], dataDir = 'data/eb', configure = true, web = 'www' } = {}) {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'eb-board-')));
-  const www = path.join(tmp, 'www');
-  fs.mkdirSync(www);
+  const www = path.join(tmp, web);
+  fs.mkdirSync(www, { recursive: true });
   fs.mkdirSync(path.join(tmp, 'data'));
   let src = fs.readFileSync(SCRIPT, 'utf8');
   if (configure) {
@@ -38,10 +39,10 @@ function setUp({ boards = ['wolfpack'], dataDir = 'data/eb', configure = true } 
     };
     set("const BOARDS = ['change-me'];", `const BOARDS = ${JSON.stringify(boards).replace(/"/g, "'")};`);
     set("const ALLOWED_ORIGINS = ['https://demukti.github.io'];", `const ALLOWED_ORIGINS = ['${ORIGIN}'];`);
-    set("const DATA_DIR = '';", `const DATA_DIR = '${path.join(tmp, dataDir)}';`);
+    if (dataDir) set("const DATA_DIR = '';", `const DATA_DIR = '${path.join(tmp, dataDir)}';`);
   }
   fs.writeFileSync(path.join(www, 'scores.php'), src);
-  return { tmp, www, script: path.join(www, 'scores.php'), dataDir: path.join(tmp, dataDir) };
+  return { tmp, www, script: path.join(www, 'scores.php'), dataDir: path.join(tmp, dataDir || '') };
 }
 
 /** Serves a set-up copy of scores.php under PHP's built-in server. */
@@ -62,6 +63,7 @@ async function startPhp(opts) {
   return {
     url,
     file: path.join(dataDir, 'scores.json'),
+    tmp,
     www,
     stop() {
       proc.kill();
@@ -270,5 +272,26 @@ test('leaderboard: refuses to write when the web root is unknown', { skip: HAS_C
     assert.match(run({ DOCUMENT_ROOT: path.join(tmp, 'www') }), /"scores":\[\]/); // a known root outside the data folder
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('leaderboard: with no DATA_DIR, uses elemental-blow-data next to public_html (DirectAdmin layout)', { skip }, async () => {
+  const s = await startPhp({ dataDir: '', web: 'home/u/domains/example.com/public_html/games' });
+  try {
+    const r = await post(s, { board: 'wolfpack', name: 'Sam', score: 500, wave: 2 });
+    assert.equal(r.status, 200);
+    const file = path.join(s.tmp, 'home/u/domains/example.com/elemental-blow-data/scores.json');
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).wolfpack[0].name, 'Sam');
+  } finally {
+    s.stop();
+  }
+});
+
+test('leaderboard: with no DATA_DIR and no public_html above it, it is not configured', { skip }, async () => {
+  const s = await startPhp({ dataDir: '' });
+  try {
+    assert.equal((await get(s, 'wolfpack')).status, 503);
+  } finally {
+    s.stop();
   }
 });

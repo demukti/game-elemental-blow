@@ -6,11 +6,15 @@ Without it, or for anyone who opens the game without a board code, the game keep
 
 ## Setup
 
+**Quick way (DirectAdmin, cPanel):** `npm run dist` (or `npm run dist -- CODE` to choose the board code) builds `dist/elemental-blow-board.zip`, a folder with `scores.php` and the code already filled in, plus `dist/UPLOAD.txt` with step-by-step instructions. Upload the zip into a domain's `public_html` with the file manager and Extract it; nothing needs editing. `dist/` is git-ignored because it contains the board code.
+
+**By hand:**
+
 1. Put `scores.php` on a PHP host (PHP 7.1 or newer), ideally on its own subdomain such as `games.example.com`, not inside a business site. A separate hosting account is better still: then the script cannot even read the other sites' files.
 2. Edit the three settings at the top of the uploaded file:
    - `BOARDS`: the board code(s) you will share, e.g. `['wolfpack']` (3 to 32 lowercase letters, digits, dashes).
    - `ALLOWED_ORIGINS`: where the game is served from. Leave `https://demukti.github.io` for the GitHub Pages copy.
-   - `DATA_DIR`: an absolute path **outside the web root of every site on the account**, e.g. `/home/you/elemental-blow-data`. The script creates the folder if its parent exists. As a safety net it refuses a folder inside its own site's web root, and refuses to store anything if the server does not say where that root is; it cannot know other sites' roots, so choosing the folder is up to you.
+   - `DATA_DIR`: leave it empty when the script sits anywhere under a `public_html` (or `private_html`) folder: it then keeps the scores in `elemental-blow-data` next to the outermost one, e.g. `/home/you/domains/example.com/elemental-blow-data` on DirectAdmin or `/home/you/elemental-blow-data` on cPanel. Otherwise set an absolute path **outside the web root of every site on the account**. The script creates the folder if its parent exists. As a safety net it refuses a folder inside its own site's web root, and refuses to store anything if the server does not say where that root is; it cannot know other sites' roots, so choosing the folder is up to you.
 3. Open `https://games.example.com/scores.php?board=wolfpack` in a browser. `{"scores":[]}` means it works. `not configured` means a setting still has its placeholder. `storage` means the data folder cannot be created or written; the reason is in the server's PHP error log.
 4. Set `BOARD_URL` in `src/board.js` to the script's address and publish the game.
 5. Send the players the game link with the code: `https://demukti.github.io/game-elemental-blow/?board=wolfpack`. Their browser remembers the code, so later visits without it still show the board.
