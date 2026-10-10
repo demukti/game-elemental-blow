@@ -41,8 +41,10 @@ export function botInput(state, { smart = true, dodge = true } = {}) {
   }
   const { e, d } = n;
   let el = counterOf(e.element);
-  if (smart && el === 'earth' && (d > 200 || e.type === 'spitter')) {
+  if (el === 'earth' && (d > 200 || e.type === 'spitter')) {
     // earth is melee range; against a kiting / distant target use the neutral ranged element
+    // (both bots: the plain bot flees anything within 260 px, so it could never land a slam
+    // and would kite a lone water enemy forever)
     el = ELEMENTS.find((x) => x !== el && x !== e.element && BEATS[e.element] !== x);
   }
   let ax = (p.x - e.x) / (d || 1);
