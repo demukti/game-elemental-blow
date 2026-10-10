@@ -74,13 +74,13 @@ export const ULT = {
 export const ENEMIES = {
   grunt: {
     r: 16, hp: 40, speed: 100, dmg: 10, score: 10, cost: 1, mass: 1, kb: 1, stun: 1, slow: 0.5,
-    spawnTime: 0.7, contactCd: 0.8, healDrop: 0.06, blowDrop: 0.05,
+    spawnTime: 0.7, contactCd: 0.8, healDrop: 0.05, blowDrop: 0.05,
     // short lunge when close: telegraphed, then a speed burst; never before lungeFromWave
     lungeRange: 90, lungeWindup: 0.25, lungeTime: 0.3, lungeSpeed: 2.6, lungeCd: 3, lungeFromWave: 2,
   },
   swarm: {
     r: 9, hp: 12, speed: 170, dmg: 5, score: 4, cost: 0.4, mass: 0.35, kb: 1.4, stun: 1, slow: 0.5,
-    spawnTime: 0.6, contactCd: 0.7, healDrop: 0.02, blowDrop: 0.03,
+    spawnTime: 0.6, contactCd: 0.7, healDrop: 0.01, blowDrop: 0.03,
     // pack flocking: once the pack gets this close it orbits the player for orbitMin..orbitMax s, then dives
     orbitR: 170, orbitEnter: 300, orbitMin: 0.8, orbitMax: 1.4, diveTime: 2.2,
   },
@@ -130,20 +130,44 @@ export const BOSS = {
   drops: { heal: 3, blow: 2 }, // on death; every element shift also drops 1 heal + 1 blow orb
 };
 
+// Wave director. Regular waves spend a budget on bodies (ENEMIES[type].cost); the rest is the clock.
 export const WAVE = {
   firstCountdown: 2.5,
   countdown: 3,
   clearDelay: 1.3,
   clearHeal: 15, // HP restored when a wave is cleared
   bossEvery: 5,
+  // budget = budgetBase + budgetPerWave * (wave - 1); the wave right after a boss gets budget * breather
   budgetBase: 4,
-  budgetPerWave: 3.2,
-  maxPerWave: 140,
+  budgetPerWave: 4,
+  breather: 0.8,
+  maxPerWave: 140, // body cap per wave; budget that cannot be spent on bodies becomes HP, up to spongeCap
+  spongeCap: 1.5,
+  // per-wave enemy scaling (k = wave - 1): hp = 1 + hp*k + hpQuad*k^2, dmg = 1 + dmg*k,
+  // speed = 1 + speedMax * (1 - exp(-speed*k/speedMax)) (a soft cap: never more than 1 + speedMax)
+  scale: { hp: 0.14, hpQuad: 0.008, speed: 0.02, speedMax: 0.4, dmg: 0.07 },
+  // simultaneous elements per wave, indexed by wave (the last entry extends): 2 on waves 1-2, 3 on 3-5, 4 from 6
+  palette: [2, 2, 3, 3, 3, 4],
+  // first wave each regular type can appear on, and how many of the rarer ones a wave may hold
+  unlock: { swarm: 2, spitter: 3, brute: 4 },
+  spitterSolo: 4, // at most 1 spitter per wave through this wave ...
+  spitterPerWave: 1, // ... then the limit grows by this much per wave
+  brutePer: 4, // brute limit = floor(wave / brutePer)
+  swarmPack: { min: 4, extra: 3, per: 4, max: 10 }, // pack size = min + random(extra + floor(wave / per)), capped
+  // spawn cadence: a group of 1 + floor(wave / groupEvery) spawns (max groupMax) every spawnInterval seconds
   spawnIntervalBase: 1.5,
   spawnIntervalPerWave: 0.05,
   spawnIntervalMin: 0.5,
-  aliveBase: 14,
-  alivePerWave: 4,
+  groupEvery: 3,
+  groupMax: 5,
+  aliveBase: 12, // alive cap = aliveBase + alivePerWave * wave (spawns pause above it)
+  alivePerWave: 3,
+  // pressure: when fewer enemies are alive than a spawn group holds, the next group comes after pressureInterval
+  pressureInterval: 0.35,
+  // mercy: below mercyHp of max HP on waves <= mercyUntil, spawn intervals stretch by mercySlow
+  mercyUntil: 6,
+  mercyHp: 0.3,
+  mercySlow: 1.5,
 };
 
 export const PICKUPS = { r: 10, life: 10, heal: 20, blow: 25, speed: 420, clearSpeed: 1400 };
@@ -156,10 +180,10 @@ export const CAPS = { enemies: 150, playerProjectiles: 220, enemyProjectiles: 32
 export const UPGRADES = [
   { id: 'vitality', name: 'Vitality', desc: '+25 max HP and heal 25', element: null, max: 99 },
   { id: 'swift', name: 'Fleet Foot', desc: '+8% move speed', element: null, max: 5 },
-  { id: 'pyromancy', name: 'Pyromancy', desc: '+20% fire damage', element: 'fire', max: 8 },
-  { id: 'tidecaller', name: 'Tidecaller', desc: '+20% water damage', element: 'water', max: 8 },
-  { id: 'stoneheart', name: 'Stoneheart', desc: '+20% earth damage', element: 'earth', max: 8 },
-  { id: 'windborn', name: 'Windborn', desc: '+20% air damage', element: 'air', max: 8 },
+  { id: 'pyromancy', name: 'Pyromancy', desc: '+20% fire damage', element: 'fire', max: 6 },
+  { id: 'tidecaller', name: 'Tidecaller', desc: '+20% water damage', element: 'water', max: 6 },
+  { id: 'stoneheart', name: 'Stoneheart', desc: '+20% earth damage', element: 'earth', max: 6 },
+  { id: 'windborn', name: 'Windborn', desc: '+20% air damage', element: 'air', max: 6 },
   { id: 'quickcast', name: 'Quickcast', desc: 'All blows recharge 10% faster', element: null, max: 6 },
   { id: 'phasestep', name: 'Phase Step', desc: 'Dash cooldown -15%', element: null, max: 4 },
   { id: 'overcharge', name: 'Overcharge', desc: 'Blow meter fills 25% faster', element: null, max: 6 },
@@ -167,7 +191,7 @@ export const UPGRADES = [
   { id: 'riptide', name: 'Riptide', desc: 'Waves pierce 2 more foes, +30% knockback, +15% width', element: 'water', max: 5 },
   { id: 'gale', name: 'Gale', desc: '+1 air dart per volley', element: 'air', max: 4 },
   { id: 'tremor', name: 'Tremor', desc: 'Slam radius +20%, stun +0.25s', element: 'earth', max: 5 },
-  { id: 'siphon', name: 'Siphon', desc: 'Heal 2 HP on every kill', element: null, max: 5 },
+  { id: 'siphon', name: 'Siphon', desc: 'Kills heal 0.5 HP each', element: null, max: 4 }, // per-kill healing scales with body count, so it stays small
   { id: 'lodestone', name: 'Lodestone', desc: 'Pickup magnet range +90', element: null, max: 4 },
   { id: 'barkskin', name: 'Bark Skin', desc: 'Take 8% less damage', element: null, max: 5 },
   { id: 'medic', name: 'Field Medic', desc: 'Heal orbs restore 50% more and drop more often', element: null, max: 3 },

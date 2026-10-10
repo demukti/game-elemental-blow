@@ -377,6 +377,12 @@ export function createRenderer(canvas) {
           break;
         case 'hit': {
           const m = num(e.mult, 1), d = Math.round(num(e.dmg, 0));
+          if (e.guarded) {
+            // brute shield stance ate half the hit: dull grey cue, no element colour
+            sparks(x, y, '#9a9aa8', 3, 180, 0.22);
+            addNumber(x, y, 'BLOCKED', '#9a9aa8', 14, false);
+            break;
+          }
           sparks(x, y, c, m >= 2 ? 10 : m < 1 ? 3 : 6, m >= 2 ? 360 : 240, 0.3);
           if (m >= 2) { ring(x, y, c, 34, 0.3); burst(x, y, '#ffffff', 3, 200, 3, 0.25); }
           if (d > 0 || m !== 1) {
@@ -470,6 +476,13 @@ export function createRenderer(canvas) {
           break;
         case 'denied':
           addShake(2); ring(lastPlayer.x, lastPlayer.y, '#ff6a7a', 40, 0.25);
+          break;
+        case 'perfectDodge':
+          // a bolt or charge that would have landed during dash i-frames: crisp, time-insensitive
+          flash('#ffd84d', 0.08);
+          ring(lastPlayer.x, lastPlayer.y, '#ffd84d', 42, 0.22); ring(lastPlayer.x, lastPlayer.y, '#ffffff', 26, 0.18);
+          sparks(lastPlayer.x, lastPlayer.y, '#ffd84d', 8, 260, 0.3);
+          addNumber(lastPlayer.x, lastPlayer.y - 24, 'PERFECT', '#ffd84d', 28, true);
           break;
         // Generic impact for the sim to emit without renderer changes:
         // { type: 'shock', x, y, element, power (0..1), kind?: 'quake' | 'roar' | ..., dx?, dy?, r? }
@@ -710,7 +723,8 @@ export function createRenderer(canvas) {
     switch (type) {
       case 'swarm': {
         ctx.rotate(ang);
-        const r = r0, w = Math.sin(t * 20 + ph) * 0.12;
+        // packmates share a wobble phase so a pack pulses together
+        const r = r0, w = Math.sin(t * 20 + (e.pack ? num(e.pack, 0) * 2.3 : ph)) * 0.12;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.moveTo(r * 1.4, 0); ctx.lineTo(-r * 0.9, r * (0.85 + w)); ctx.lineTo(-r * 0.35, 0); ctx.lineTo(-r * 0.9, -r * (0.85 + w));
@@ -749,6 +763,18 @@ export function createRenderer(canvas) {
         ctx.fillStyle = flashing ? '#fff' : c;
         ctx.fillRect(r * 0.15, -r * 0.1, r * 0.55, r * 0.2);
         glow(0, 0, r * 0.9, c, 0.25 + 0.2 * tg);
+        // guard stance: frontal shield arc (hits from this side are halved; flank it or switch element)
+        const gd = clamp(num(e.guard, 0), 0, 1);
+        if (gd > 0) {
+          const ga = 1.05 + 0.1 * Math.sin(t * 9);
+          ctx.globalAlpha = (1 - spawnT * 0.6) * (0.25 + 0.6 * gd);
+          ctx.strokeStyle = c; ctx.lineWidth = 5; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.arc(0, 0, r * 1.55, -ga, ga); ctx.stroke();
+          ctx.globalAlpha *= 0.4; ctx.fillStyle = c;
+          ctx.beginPath(); ctx.arc(0, 0, r * 1.55, -ga, ga); ctx.arc(0, 0, r * 1.2, ga, -ga, true); ctx.closePath(); ctx.fill();
+          ctx.globalAlpha = 1 - spawnT * 0.6;
+          glow(r * 1.3, 0, r * 0.9, c, 0.5 * gd);
+        }
         break;
       }
       case 'boss': {
@@ -781,6 +807,15 @@ export function createRenderer(canvas) {
       default: { // grunt and unknown kinds
         ctx.rotate(ang);
         const r = r0; ctx.lineWidth = 3;
+        const lunging = e._ai === 'lunge';
+        if (lunging) ctx.scale(1.3, 0.8); // body stretches along the lunge direction
+        if (e.telegraphKind === 'lunge') {
+          // wind-up: a tiny pointed chevron that grows ahead of the grunt
+          const wu = clamp(num(e.windup, 0), 0, 1), lx = r * (1.6 + 1.2 * wu), hw = r * (0.35 + 0.35 * wu);
+          ctx.save(); ctx.strokeStyle = HOSTILE; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.globalAlpha *= 0.45 + 0.55 * wu;
+          ctx.beginPath(); ctx.moveTo(lx - hw, -hw); ctx.lineTo(lx + hw * 0.6, 0); ctx.lineTo(lx - hw, hw); ctx.stroke();
+          ctx.restore();
+        }
         for (let s = -1; s <= 1; s += 2) {
           ctx.beginPath(); ctx.moveTo(r * 0.5, s * r * 0.55); ctx.lineTo(r * 1.35, s * r * 0.85); ctx.lineTo(r * 0.9, s * r * 0.1);
           ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -901,6 +936,16 @@ export function createRenderer(canvas) {
     if (blowReady) {
       ctx.strokeStyle = '#ffd84d'; ctx.lineWidth = 2.5; ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 8);
       ctx.beginPath(); ctx.arc(x, y, r * 2.1 + Math.sin(t * 8) * 2, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
+      // surge (meter held full): a white core that brightens on top of the ready aura
+      const surge = clamp(num(pl.blowSurge, 0), 0, 1);
+      if (surge > 0) glow(x, y, r * (1.6 + 1.2 * surge), '#ffffff', 0.35 * surge);
+    }
+    // nova rush: faster blow cooldowns for a moment after a nova, shown as a bright fading ring
+    const rush = clamp(num(pl.novaRush, 0) / 1.5, 0, 1);
+    if (rush > 0) {
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.25 + 0.55 * rush;
+      ctx.beginPath(); ctx.arc(x, y, r + 8, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
+      glow(x, y, r * 2.4, c, 0.35 * rush);
     }
     // orbiting element motes
     for (let i = 0; i < 3; i++) {

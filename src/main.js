@@ -446,6 +446,10 @@ window.elementalBlow = {
   get bot() {
     return !!botMode;
   },
+  // Trigger a screen-shock effect from the console: shock(x, y, power 0..1, kind?: 'quake' | 'roar').
+  shock(x, y, power, kind) {
+    return renderer.debugShock(x, y, power, kind);
+  },
 };
 
 onResize();

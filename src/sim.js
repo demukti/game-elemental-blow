@@ -85,19 +85,32 @@ export function counterOf(el) {
 // ---------------------------------------------------------------------------
 // Scaling
 // ---------------------------------------------------------------------------
+/** Per-wave enemy multipliers (see WAVE.scale). Speed saturates smoothly at 1 + speedMax. */
 function waveScale(n) {
   const k = Math.max(0, n - 1);
+  const sc = WAVE.scale;
   return {
-    hp: 1 + 0.14 * k + 0.008 * k * k,
-    speed: Math.min(1.4, 1 + 0.015 * k),
-    dmg: 1 + 0.045 * k,
+    hp: 1 + sc.hp * k + sc.hpQuad * k * k,
+    speed: 1 + sc.speedMax * (1 - Math.exp((-sc.speed * k) / sc.speedMax)),
+    dmg: 1 + sc.dmg * k,
   };
 }
 const bossIndex = (n) => Math.max(1, Math.floor(n / WAVE.bossEvery));
 const isBossWave = (n) => n % WAVE.bossEvery === 0;
 const maxAlive = (n) => Math.min(CAPS.enemies, WAVE.aliveBase + WAVE.alivePerWave * n);
-const spawnInterval = (n) =>
-  Math.max(WAVE.spawnIntervalMin, WAVE.spawnIntervalBase - WAVE.spawnIntervalPerWave * (n - 1));
+const spawnGroups = (n) => Math.min(WAVE.groupMax, 1 + Math.floor(n / WAVE.groupEvery));
+/** Budget a regular wave spends on bodies; the wave after a boss is a breather. */
+const waveBudget = (n) =>
+  (WAVE.budgetBase + WAVE.budgetPerWave * (n - 1)) * (n > 1 && isBossWave(n - 1) ? WAVE.breather : 1);
+/** Seconds between spawn groups; stretched by the mercy rule (low HP on an early wave). */
+function spawnInterval(state, n) {
+  const base = Math.max(WAVE.spawnIntervalMin, WAVE.spawnIntervalBase - WAVE.spawnIntervalPerWave * (n - 1));
+  return base * mercyFactor(state);
+}
+function mercyFactor(state) {
+  const p = state.player;
+  return state.wave <= WAVE.mercyUntil && p.hp < p.maxHp * WAVE.mercyHp ? WAVE.mercySlow : 1;
+}
 const blowCooldown = (state, el) => BLOWS[el].cooldown * state._mods.cd;
 
 // ---------------------------------------------------------------------------
@@ -204,7 +217,8 @@ export function createGame(seed) {
 // Waves
 // ---------------------------------------------------------------------------
 function elementPalette(state, n) {
-  const size = n <= 2 ? 2 : n <= 4 ? 3 : 4;
+  const sizes = WAVE.palette;
+  const size = clamp(sizes[Math.min(sizes.length, Math.max(1, n)) - 1], 1, ELEMENTS.length);
   const pool = ELEMENTS.slice();
   const out = [];
   while (out.length < size) out.push(pool.splice(ri(state, pool.length), 1)[0]);
@@ -227,15 +241,19 @@ function planWave(state, n) {
     return q;
   }
 
-  let budget = WAVE.budgetBase + WAVE.budgetPerWave * (n - 1);
+  let budget = waveBudget(n);
   const total = budget;
-  const limits = { brute: Math.floor(n / 4), spitter: 1 + Math.floor(n / 2) };
+  const un = WAVE.unlock;
+  const limits = {
+    brute: Math.floor(n / WAVE.brutePer),
+    spitter: n <= WAVE.spitterSolo ? 1 : 1 + Math.floor((n - WAVE.spitterSolo) * WAVE.spitterPerWave),
+  };
   const counts = { grunt: 0, swarm: 0, spitter: 0, brute: 0 };
   while (budget > 0.2 && q.length < WAVE.maxPerWave) {
     const opts = [['grunt', 3]];
-    if (n >= 2) opts.push(['swarm', 2]);
-    if (n >= 3 && counts.spitter < limits.spitter) opts.push(['spitter', 1.6]);
-    if (n >= 4 && counts.brute < limits.brute && budget >= ENEMIES.brute.cost) opts.push(['brute', 1]);
+    if (n >= un.swarm) opts.push(['swarm', 1.5]);
+    if (n >= un.spitter && counts.spitter < limits.spitter) opts.push(['spitter', 2]);
+    if (n >= un.brute && counts.brute < limits.brute && budget >= ENEMIES.brute.cost) opts.push(['brute', 1]);
     let sum = 0;
     for (const o of opts) sum += o[1];
     let roll = random(state) * sum;
@@ -248,7 +266,8 @@ function planWave(state, n) {
       }
     }
     if (type === 'swarm') {
-      const size = Math.min(10, 4 + ri(state, 3 + Math.floor(n / 4)));
+      const sp = WAVE.swarmPack;
+      const size = Math.min(sp.max, sp.min + ri(state, sp.extra + Math.floor(n / sp.per)));
       const pack = ++state._pack;
       const el = pick(state, pal);
       for (let i = 0; i < size && q.length < WAVE.maxPerWave; i++) q.push({ type, element: el, pack });
@@ -260,8 +279,8 @@ function planWave(state, n) {
       counts[type]++;
     }
   }
-  // Whatever budget could not be spent on bodies (count cap) becomes extra HP.
-  if (budget > 0.2) state._waveHp = 1 + budget / Math.max(1, total - budget);
+  // Whatever budget could not be spent on bodies (count cap) becomes extra HP, capped so late waves are not sponges.
+  if (budget > 0.2) state._waveHp = Math.min(WAVE.spongeCap, 1 + budget / Math.max(1, total - budget));
   // Never open a wave with a brute: move the first non-brute entry to the front.
   if (q.length && q[0].type === 'brute') {
     const i = q.findIndex((e) => e.type !== 'brute');
@@ -320,7 +339,7 @@ function spawnPoint(state, r) {
 }
 
 function spawnFromQueue(state) {
-  let groups = Math.min(5, 1 + Math.floor(state.wave / 4));
+  let groups = spawnGroups(state.wave);
   while (groups > 0 && state._queue.length && state.enemies.length < CAPS.enemies) {
     const entry = state._queue[0];
     if (entry.pack) {
@@ -357,9 +376,13 @@ function updateWave(state, dt) {
   }
   if (state._waveActive && state._queue.length) {
     state._spawnTimer -= dt;
+    // pressure: the arena holds fewer enemies than one spawn group, so the next group comes sooner
+    if (state.enemies.length < spawnGroups(state.wave)) {
+      state._spawnTimer = Math.min(state._spawnTimer, WAVE.pressureInterval * mercyFactor(state));
+    }
     if (state._spawnTimer <= 0 && state.enemies.length < maxAlive(state.wave)) {
       spawnFromQueue(state);
-      state._spawnTimer = spawnInterval(state.wave);
+      state._spawnTimer = spawnInterval(state, state.wave);
     }
   }
 }
@@ -1863,7 +1886,7 @@ function applyUpgradeEffect(state, id) {
       m.slamRadius += 0.2;
       m.stun += 0.25;
       break;
-    case 'siphon': m.lifesteal += 2; break;
+    case 'siphon': m.lifesteal += 0.5; break;
     case 'lodestone': m.magnet += 90; break;
     case 'barkskin': m.armor *= 0.92; break;
     case 'medic':

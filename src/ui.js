@@ -4,6 +4,7 @@ const ELEMENTS = ['fire', 'water', 'earth', 'air'];
 const COLORS = { fire: '#ff6a3d', water: '#3da9ff', earth: '#8bd450', air: '#e8e6ff' };
 const BEATS = { water: 'fire', fire: 'air', air: 'earth', earth: 'water' };
 const NAMES = { fire: 'Fire', water: 'Water', earth: 'Earth', air: 'Air' };
+const SURGE_BONUS = 0.3; // max nova damage bonus from holding the meter full (mirrors config ULT.surgeBonus)
 
 const ICONS = {
   fire: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 3-7 1 2 2 2 2 2 0-3 0-5 1-7z"/></svg>',
@@ -116,9 +117,11 @@ export function createUI(callbacks) {
   const blowFill = h('div', 'fill');
   const blowLabel = h('div', 'bar-label', 'BLOW');
   const blowText = h('div', 'bar-text', '0%');
-  blowBar.append(blowFill, blowLabel, blowText);
+  const blowSurge = h('div', 'surge'); // bright core that grows while the meter is held full
+  blowBar.append(blowFill, blowSurge, blowLabel, blowText);
   const blowHint = h('div', 'blow-hint');
-  blowHint.append(h('kbd', null, 'SPACE'), h('span', null, 'UNLEASH'));
+  const blowHintText = h('span', 'surge-text', 'UNLEASH'); // reads "SURGE +x%" while the meter is held full
+  blowHint.append(h('kbd', null, 'SPACE'), blowHintText);
   blowWrap.append(blowBar, blowHint);
   tl.append(hpBar, blowWrap);
 
@@ -529,6 +532,14 @@ export function createUI(callbacks) {
       setVar('blw', blowFill, 'width', Math.round(blow * 10) / 10 + '%');
       setText('blt', blowText, full ? 'READY' : Math.floor(blow) + '%');
       setCls('blf', blowWrap, 'full', full);
+      // surge: 0..1 while the meter is held full; the nova bonus tops out at SURGE_BONUS (config ULT.surgeBonus)
+      const surge = full ? Math.max(0, Math.min(1, num(p.blowSurge))) : 0;
+      const surgePct = Math.round(surge * SURGE_BONUS * 100);
+      setVar('bls', blowBar, '--surge', (Math.round(surge * 100) / 100) + '');
+      setCls('blsg', blowWrap, 'surging', surgePct > 0);
+      setText('blst', blowHintText, surgePct > 0 ? 'SURGE +' + surgePct + '%' : 'UNLEASH');
+      // nova rush: brief tint on the meter while blow cooldowns run faster after a nova
+      setCls('blr', blowWrap, 'rush', num(p.novaRush) > 0);
 
       // Elements
       for (let i = 0; i < ELEMENTS.length; i++) {

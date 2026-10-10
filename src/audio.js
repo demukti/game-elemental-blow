@@ -149,6 +149,12 @@ const S = {
   },
   hit(ev) {
     const m = ev.mult;
+    if (ev.guarded) {
+      // brute shield stance ate the hit: dull, woody thunk with no element sparkle
+      tone({ f: 150, to: 70, type: 'triangle', dur: 0.09, vol: 0.26, lp: 500 });
+      noise({ f0: 320, f1: 90, dur: 0.08, vol: 0.2, q: 0.6 });
+      return;
+    }
     if (m > 1) {
       tone({ f: 880, to: 1320, type: 'square', dur: 0.1, vol: 0.14, lp: 5000 });
       tone({ f: 1320, to: 1760, type: 'sine', dur: 0.14, vol: 0.14, delay: 0.04 });
@@ -265,6 +271,66 @@ const S = {
     tone({ f: 200, to: 60, type: 'sawtooth', dur: 0.7, vol: 0.3, lp: 900 });
     noise({ f0: 2500, f1: 150, dur: 0.6, vol: 0.3 });
   },
+  perfectDodge() {
+    // bright double blip
+    tone({ f: 1320, to: 1480, type: 'triangle', dur: 0.07, vol: 0.16 });
+    tone({ f: 1760, to: 2200, type: 'sine', dur: 0.12, vol: 0.18, delay: 0.07 });
+    noise({ ft: 'highpass', f0: 5000, dur: 0.04, vol: 0.06, delay: 0.07 });
+  },
+  // Generic screen impact: { power 0..1, kind?: 'quake' | 'roar' | other } (tolerant of missing fields)
+  shock(ev) {
+    const p = Math.min(1, Math.max(0, Number(ev.power) || 0.5));
+    if (ev.kind === 'quake') {
+      noise({ f0: 160, f1: 50, dur: 0.5 + 0.4 * p, vol: 0.25 + 0.3 * p, q: 0.7 });
+      tone({ f: 42, to: 30, type: 'sine', dur: 0.5 + 0.4 * p, vol: 0.3 + 0.35 * p, a: 0.03 });
+    } else if (ev.kind === 'roar') {
+      tone({ f: 95, to: 140, type: 'sawtooth', dur: 0.5 + 0.3 * p, vol: 0.12 + 0.18 * p, lp: 700, a: 0.12 });
+      tone({ f: 190, to: 285, type: 'square', dur: 0.4 + 0.3 * p, vol: 0.05 + 0.07 * p, lp: 900, a: 0.12 });
+      noise({ ft: 'bandpass', f0: 300, f1: 900, q: 1.2, dur: 0.5, vol: 0.08 + 0.12 * p, a: 0.1 });
+    } else {
+      tone({ f: 90, to: 32, type: 'sine', dur: 0.18 + 0.2 * p, vol: 0.2 + 0.4 * p });
+      noise({ f0: 500, f1: 70, dur: 0.15 + 0.15 * p, vol: 0.1 + 0.2 * p });
+    }
+  },
+  // Boss attack cues: { kind: 'meteor' | 'tide' | 'quake' | 'gale' | 'enrage' | 'winded' }
+  bossAttack(ev) {
+    switch (ev.kind) {
+      case 'meteor':
+        tone({ f: 1100, to: 180, type: 'sawtooth', dur: 0.45, vol: 0.12, lp: 2200 });
+        noise({ ft: 'bandpass', f0: 2400, f1: 300, q: 1.5, dur: 0.45, vol: 0.14 });
+        tone({ f: 80, to: 30, type: 'sine', dur: 0.35, vol: 0.45, delay: 0.42 });
+        noise({ f0: 900, f1: 60, dur: 0.3, vol: 0.3, delay: 0.42 });
+        break;
+      case 'tide':
+        noise({ ft: 'bandpass', f0: 250, f1: 1600, q: 1.2, dur: 0.7, vol: 0.28, a: 0.15 });
+        tone({ f: 180, to: 420, type: 'sine', dur: 0.6, vol: 0.16, a: 0.12 });
+        tone({ f: 270, to: 630, type: 'sine', dur: 0.5, vol: 0.08, a: 0.1, delay: 0.08 });
+        break;
+      case 'quake':
+        noise({ f0: 180, f1: 45, dur: 0.9, vol: 0.5, q: 0.7 });
+        tone({ f: 45, to: 28, type: 'sine', dur: 0.9, vol: 0.6, a: 0.02 });
+        tone({ f: 120, to: 40, type: 'square', dur: 0.2, vol: 0.1, lp: 500 });
+        break;
+      case 'gale':
+        noise({ ft: 'bandpass', f0: 1200, f1: 5200, q: 2.2, dur: 0.6, vol: 0.26, a: 0.08 });
+        tone({ f: 600, to: 1500, type: 'triangle', dur: 0.5, vol: 0.06, a: 0.08 });
+        break;
+      case 'enrage':
+        tone({ f: 110, to: 165, type: 'sawtooth', dur: 0.8, vol: 0.28, lp: 800, a: 0.1 });
+        tone({ f: 220, to: 330, type: 'square', dur: 0.7, vol: 0.1, lp: 1200, a: 0.1 });
+        noise({ ft: 'bandpass', f0: 400, f1: 1200, q: 1, dur: 0.7, vol: 0.18, a: 0.1 });
+        for (let i = 0; i < 2; i++) tone({ f: 60, to: 38, type: 'sine', dur: 0.3, vol: 0.45, delay: 0.15 + i * 0.3 });
+        break;
+      case 'winded':
+        // the boss is open: a falling sigh
+        tone({ f: 330, to: 110, type: 'triangle', dur: 0.6, vol: 0.14, a: 0.03 });
+        noise({ f0: 1800, f1: 200, dur: 0.6, vol: 0.14, q: 0.6, a: 0.03 });
+        break;
+      default:
+        tone({ f: 160, to: 60, type: 'sawtooth', dur: 0.3, vol: 0.14, lp: 900 });
+        noise({ f0: 1200, f1: 120, dur: 0.3, vol: 0.14 });
+    }
+  },
 };
 
 // Minimum seconds between two plays of the same sound, and a max-per-window cap.
@@ -272,6 +338,7 @@ const GAP = {
   shoot: 0.04, hit: 0.035, enemyDie: 0.05, playerHit: 0.1, dash: 0.15, blow: 0.3, blowReady: 0.5,
   switch: 0.05, pickup: 0.06, waveStart: 0.5, waveClear: 0.5, bossSpawn: 1, explosion: 0.06, slam: 0.1,
   enemyShoot: 0.07, upgrade: 0.2, gameOver: 1, denied: 0.15, bossPhase: 0.5,
+  perfectDodge: 0.12, shock: 0.08, bossAttack: 0.2,
 };
 const lastPlayed = {};
 const burst = {}; // max 3 voices of a type in any 0.12s window
