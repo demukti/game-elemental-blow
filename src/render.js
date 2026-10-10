@@ -471,6 +471,26 @@ export function createRenderer(canvas) {
         case 'denied':
           addShake(2); ring(lastPlayer.x, lastPlayer.y, '#ff6a7a', 40, 0.25);
           break;
+        // Boss pattern cue: { type: 'bossAttack', kind: 'meteor' | 'tide' | 'quake' | 'gale' | 'enrage' | 'winded', x, y, element }
+        case 'bossAttack':
+          switch (e.kind) {
+            case 'meteor': ring(x, y, c, 110, 0.45); sparks(x, y, '#ff8a30', 12, 320, 0.5); break;
+            case 'tide': ring(x, y, c, 130, 0.5); ring(x, y, '#e8f6ff', 80, 0.4); break;
+            case 'quake': addShake(5); ring(x, y, c, 100, 0.45); smoke(x, y, c, 5, 120, 16, 0.6); break;
+            case 'gale': ring(x, y, c, 150, 0.6); sparks(x, y, c, 10, 260, 0.5); break;
+            case 'enrage':
+              addShake(20); flash(HOSTILE, 0.3);
+              ring(x, y, HOSTILE, 280, 0.8); ring(x, y, '#ffffff', 140, 0.5);
+              burst(x, y, HOSTILE, 28, 420, 4, 0.8); sparks(x, y, HOSTILE, 16, 500, 0.5);
+              addNumber(x, y + 96, 'ENRAGED', HOSTILE, 30, true);
+              break;
+            case 'winded':
+              ring(x, y, '#ffe14d', 120, 0.5); sparks(x, y, '#ffe14d', 12, 300, 0.45);
+              addNumber(x, y + 96, 'WINDED!', '#ffe14d', 26, true);
+              break;
+            default: ring(x, y, c, 90, 0.4);
+          }
+          break;
         // Generic impact for the sim to emit without renderer changes:
         // { type: 'shock', x, y, element, power (0..1), kind?: 'quake' | 'roar' | ..., dx?, dy?, r? }
         case 'shock':
@@ -655,6 +675,121 @@ export function createRenderer(canvas) {
           ctx.restore();
           break;
         }
+        // ---- boss signature patterns (hazards are hostile-red outlined on top of their element colour) ----
+        case 'meteor': {
+          // target circle filling up as the fuse burns, with the falling rock closing in from above
+          const pulse = 0.5 + 0.5 * Math.sin(t * 18);
+          ctx.save(); ctx.translate(x, y);
+          ctx.fillStyle = HOSTILE; ctx.globalAlpha = 0.08 + 0.08 * p;
+          ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+          ctx.fillStyle = c; ctx.globalAlpha = 0.18 + 0.4 * p + 0.08 * pulse;
+          ctx.beginPath(); ctx.arc(0, 0, Math.max(1, r * p), 0, TAU); ctx.fill();
+          ctx.globalAlpha = 0.7 + 0.3 * pulse; ctx.strokeStyle = HOSTILE; ctx.lineWidth = 3;
+          ctx.setLineDash(DASH); ctx.lineDashOffset = -t * 40;
+          ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.stroke(); ctx.setLineDash(NODASH);
+          ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(-r * 0.5, 0); ctx.lineTo(r * 0.5, 0); ctx.moveTo(0, -r * 0.5); ctx.lineTo(0, r * 0.5); ctx.stroke();
+          ctx.restore(); ctx.globalAlpha = 1;
+          const h = (1 - p) * (1 - p) * 420;
+          glow(x + h * 0.25, y - h, 26 + 14 * p, '#ff8a30', 0.7);
+          ctx.fillStyle = '#fff2cc'; ctx.beginPath(); ctx.arc(x + h * 0.25, y - h, 5 + 4 * p, 0, TAU); ctx.fill();
+          break;
+        }
+        case 'burnpatch': {
+          const id = num(f.id, 1);
+          glow(x, y, r * 1.6, c, 0.4 * k);
+          ctx.fillStyle = '#5a1a0a'; ctx.globalAlpha = 0.5 * k;
+          ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+          ctx.globalAlpha = 0.6 * k; ctx.strokeStyle = HOSTILE; ctx.lineWidth = 2;
+          ctx.setLineDash(DASH); ctx.lineDashOffset = t * 30;
+          ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke(); ctx.setLineDash(NODASH);
+          for (let i = 0; i < 4; i++) {
+            const q = (t * 1.6 + hash(id, i)) % 1;
+            glow(x + (hash(id, i + 9) - 0.5) * r * 1.4, y - q * r * 0.9, r * 0.35 * (1 - q * 0.5), '#ff8a30', 0.8 * (1 - q) * k);
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case 'quakering': {
+          const R = num(f._R, 0);
+          if (R <= 1) break;
+          const gapA = num(f._gapA, 0), gw = num(f._gapW, 0.9);
+          const a0 = gapA + gw / 2, a1 = gapA - gw / 2 + TAU;
+          const fade = Math.min(1, (r - R) / 90);
+          ctx.lineCap = 'butt';
+          ctx.globalAlpha = 0.45 * fade; ctx.strokeStyle = HOSTILE; ctx.lineWidth = 14;
+          ctx.beginPath(); ctx.arc(x, y, R, a0, a1); ctx.stroke();
+          ctx.globalAlpha = 0.95 * fade; ctx.strokeStyle = c; ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.arc(x, y, R, a0, a1); ctx.stroke();
+          ctx.globalAlpha = 0.8 * fade; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(x, y, R + 6, a0, a1); ctx.stroke();
+          // gap markers: the safe passage
+          ctx.globalAlpha = 0.9 * fade; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+          for (const ga of [a0, a1]) {
+            ctx.beginPath(); ctx.moveTo(x + Math.cos(ga) * (R - 16), y + Math.sin(ga) * (R - 16)); ctx.lineTo(x + Math.cos(ga) * (R + 16), y + Math.sin(ga) * (R + 16)); ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case 'pillar': {
+          const age = ml - num(f.life, 0), rise = clamp(age / 0.3, 0, 1), out = Math.min(1, num(f.life, 0) / 0.4);
+          const rr = r * rise, id = num(f.id, 1);
+          ctx.save(); ctx.translate(x, y); ctx.globalAlpha = out;
+          glow(0, 0, rr * 1.8, c, 0.3 * out);
+          ctx.fillStyle = '#000'; ctx.globalAlpha = 0.35 * out;
+          ctx.beginPath(); ctx.ellipse(0, rr * 0.5, rr * 1.1, rr * 0.5, 0, 0, TAU); ctx.fill();
+          ctx.globalAlpha = out; ctx.fillStyle = dark('earth'); ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+          poly(6, rr, hash(id, 1) * TAU, 0, 0); ctx.fill(); ctx.stroke();
+          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.4 * out;
+          poly(6, rr * 0.55, hash(id, 1) * TAU, 0, 0); ctx.stroke();
+          ctx.globalAlpha = (0.55 + 0.3 * Math.sin(t * 10)) * out; ctx.strokeStyle = HOSTILE; ctx.lineWidth = 2;
+          ctx.setLineDash(DASH); ctx.lineDashOffset = -t * 24;
+          ctx.beginPath(); ctx.arc(0, 0, rr + 8, 0, TAU); ctx.stroke(); ctx.setLineDash(NODASH);
+          ctx.restore(); ctx.globalAlpha = 1;
+          break;
+        }
+        case 'gale': {
+          // pull lines streaming toward the boss
+          const pulse = 0.5 + 0.5 * Math.sin(t * 12);
+          ctx.save(); ctx.translate(x, y); ctx.rotate(t * 0.25);
+          ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineCap = 'round';
+          ctx.setLineDash([16, 30]); ctx.lineDashOffset = t * 420;
+          ctx.globalAlpha = 0.35 + 0.25 * pulse;
+          ctx.beginPath();
+          for (let i = 0; i < 14; i++) {
+            const a = (i / 14) * TAU;
+            ctx.moveTo(Math.cos(a) * 70, Math.sin(a) * 70); ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+          }
+          ctx.stroke(); ctx.setLineDash(NODASH);
+          ctx.strokeStyle = HOSTILE; ctx.lineWidth = 2.5; ctx.globalAlpha = 0.5 + 0.4 * pulse;
+          ctx.setLineDash(DASH); ctx.lineDashOffset = t * 60;
+          ctx.beginPath(); ctx.arc(0, 0, r * (0.55 + 0.45 * k), 0, TAU); ctx.stroke(); ctx.setLineDash(NODASH);
+          ctx.restore(); ctx.globalAlpha = 1;
+          glow(x, y, 160, c, 0.25 + 0.15 * pulse);
+          break;
+        }
+        case 'tidewarn': {
+          // two lanes with the safe gap between them, from the boss toward the player
+          const half = num(f._half, 150), gap = num(f._gap, 120), off = num(f._off, 0), len = num(f.len, 1800);
+          const pulse = 0.5 + 0.5 * Math.sin(t * 16);
+          ctx.save(); ctx.translate(x, y); ctx.rotate(num(f.angle, 0));
+          for (let sgn = -1; sgn <= 1; sgn += 2) {
+            const cy = off + sgn * (gap / 2 + half);
+            ctx.fillStyle = HOSTILE; ctx.globalAlpha = 0.08 + 0.12 * p;
+            ctx.fillRect(0, cy - half, len, half * 2);
+            ctx.fillStyle = c; ctx.globalAlpha = 0.12 + 0.2 * p + 0.06 * pulse;
+            ctx.fillRect(0, cy - half, len * p, half * 2);
+            ctx.globalAlpha = 0.6 + 0.3 * pulse; ctx.strokeStyle = HOSTILE; ctx.lineWidth = 2;
+            ctx.setLineDash(DASH); ctx.lineDashOffset = -t * 40;
+            ctx.strokeRect(0, cy - half, len, half * 2); ctx.setLineDash(NODASH);
+          }
+          // the gap: a calm safe lane
+          ctx.globalAlpha = 0.5 + 0.3 * pulse; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 10]); ctx.lineDashOffset = t * 50;
+          ctx.beginPath(); ctx.moveTo(0, off); ctx.lineTo(len, off); ctx.stroke(); ctx.setLineDash(NODASH);
+          ctx.restore(); ctx.globalAlpha = 1;
+          break;
+        }
         default: {
           ctx.globalAlpha = k * 0.5; ctx.strokeStyle = c; ctx.lineWidth = 3;
           ctx.beginPath(); ctx.arc(x, y, r * (0.3 + 0.7 * p), 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
@@ -776,6 +911,37 @@ export function createRenderer(canvas) {
           const a = t * 1.3 + k * (TAU / 4);
           ctx.beginPath(); ctx.arc(Math.cos(a) * r * 1.15, Math.sin(a) * r * 1.15, r * 0.09, 0, TAU); ctx.fill();
         }
+        // winded: the weak-point window (cracks glow yellow, boss takes extra damage)
+        const winded = num(e.winded, 0);
+        if (winded > 0) {
+          const wk = Math.min(1, winded / 0.4), pulse = 0.5 + 0.5 * Math.sin(t * 14);
+          glow(0, 0, r * 2.2, '#ffe14d', (0.3 + 0.25 * pulse) * wk);
+          ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.globalAlpha = (0.75 + 0.25 * pulse) * wk;
+          const id = num(e.id, 1);
+          ctx.beginPath();
+          for (let c2 = 0; c2 < 7; c2++) {
+            const a = (c2 / 7) * TAU + hash(id, c2) * 0.6, len = r * (0.5 + hash(id, c2 + 30) * 0.5);
+            let cx = Math.cos(a) * r * 0.25, cy = Math.sin(a) * r * 0.25; ctx.moveTo(cx, cy);
+            for (let s2 = 1; s2 <= 3; s2++) {
+              const aa = a + (hash(id, c2 * 5 + s2) - 0.5) * 0.7, dd = len / 3;
+              cx += Math.cos(aa) * dd; cy += Math.sin(aa) * dd; ctx.lineTo(cx, cy);
+            }
+          }
+          ctx.stroke();
+          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.9 * wk; ctx.stroke();
+          ctx.globalAlpha = 0.6 * wk; ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = 2;
+          ctx.setLineDash(DASH); ctx.lineDashOffset = t * 50;
+          ctx.beginPath(); ctx.arc(0, 0, r * 1.7, 0, TAU); ctx.stroke(); ctx.setLineDash(NODASH);
+          ctx.globalAlpha = 1 - spawnT * 0.6;
+        }
+        // enraged (phase 3): hostile aura
+        if (e.enraged) {
+          const pulse = 0.5 + 0.5 * Math.sin(t * 9);
+          glow(0, 0, r * 3.2, HOSTILE, 0.22 + 0.12 * pulse);
+          ctx.strokeStyle = HOSTILE; ctx.lineWidth = 3; ctx.globalAlpha = 0.45 + 0.3 * pulse;
+          ctx.save(); ctx.rotate(-t * 1.6); spikes(8, r * 1.55, r * 1.85 + pulse * 6, 0, 0.12); ctx.stroke(); ctx.restore();
+          ctx.globalAlpha = 1 - spawnT * 0.6;
+        }
         break;
       }
       default: { // grunt and unknown kinds
@@ -871,6 +1037,27 @@ export function createRenderer(canvas) {
         ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(len * 0.6, 0); ctx.stroke();
         ctx.globalCompositeOperation = 'source-over';
         ctx.restore();
+        break;
+      }
+      case 'tide': {
+        // boss tide wall: a segment of half-length _half perpendicular to its travel
+        const half = num(p._half, 150);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+        for (let i = -1; i <= 1; i++) glow(0, i * half * 0.6, half * 0.55, c, 0.35);
+        ctx.fillStyle = dark('water'); ctx.globalAlpha = 0.75;
+        ctx.fillRect(-r, -half, r * 2, half * 2);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = c; ctx.globalAlpha = 0.35 + 0.15 * Math.sin(t * 12);
+        ctx.fillRect(-r * 0.4, -half, r * 1.2, half * 2);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 0.9; ctx.strokeStyle = HOSTILE; ctx.lineWidth = 2.5;
+        ctx.strokeRect(-r, -half, r * 2, half * 2);
+        // crest
+        ctx.strokeStyle = '#e8f6ff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        ctx.beginPath();
+        for (let yy = -half; yy <= half; yy += 18) { const w = Math.sin(t * 10 + yy * 0.08) * 3; ctx.moveTo(r * 0.6 + w, yy); ctx.lineTo(r * 0.6 + w, Math.min(half, yy + 9)); }
+        ctx.stroke();
+        ctx.restore(); ctx.globalAlpha = 1;
         break;
       }
       case 'bolt': {

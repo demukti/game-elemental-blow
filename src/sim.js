@@ -455,6 +455,15 @@ export function spawnEnemy(state, type, element, x, y, opts = {}) {
     _lungeCd: rr(state, 1.5, 3.5),
     _guardCd: rr(state, 2, 5),
     _chargeHit: false, // brute: did the current charge connect?
+    // boss extras (read by render): winded = seconds of the weak-point window left, enraged = phase 3
+    winded: 0,
+    enraged: false,
+    _patterns: 0, // boss: patterns used so far (the first one is scripted)
+    _sig: null, // boss: signature pattern being wound up
+    _windDur: 0,
+    _chained: false,
+    _pillars: null,
+    _tideSide: 1,
   };
   state.enemies.push(e);
   if (type === 'boss') emit(state, { type: 'bossSpawn', x: e.x, y: e.y, element: e.element });
@@ -571,9 +580,12 @@ function applyBurn(state, e, time, dps) {
 
 function hurtEnemy(state, e, base, element, opts) {
   if (e._dead || !(base > 0)) return 0;
+  if (e.type === 'boss' && e.spawnT > 0) return 0; // the titan's arrival is shielded
   const mult = elementMultiplier(element, e.element);
   let dmg = base * mult * state._mods.dmg[element];
   let guarded = false;
+  const winded = e.type === 'boss' && e.winded > 0;
+  if (winded) dmg *= BOSS.windedMult;
   if (e.guard > 0 && !(opts && opts.dot)) {
     // shield stance: hits from the front are halved (every direct player attack comes from the player)
     const p = state.player;
@@ -592,6 +604,7 @@ function hurtEnemy(state, e, base, element, opts) {
   const ev = { type: 'hit', x: e.x, y: e.y, element, dmg: Math.max(1, Math.round(dmg)), mult, enemyId: e.id };
   if (opts && opts.dot) ev.dot = true;
   if (guarded) ev.guarded = true;
+  if (winded) ev.winded = true;
   emit(state, ev);
   if (!(opts && opts.noCharge)) {
     // normalised by the wave's HP scaling so the meter fills at a similar pace on every wave
@@ -644,6 +657,7 @@ function killEnemy(state, e) {
     // The titan's death takes its minions with it.
     for (const o of state.enemies) if (!o._dead && o._minion) killEnemy(state, o);
     for (const pr of state.projectiles) if (pr.owner === 'enemy') pr._dead = true;
+    for (const f of state.effects) if (f._hazard) f.life = 0;
   } else if (!e._minion || random(state) < 0.5) {
     const r = random(state);
     const heal = def.healDrop * m.healDrop;
@@ -1224,10 +1238,47 @@ function clearWindup(e) {
   e.telegraph = 0;
 }
 
-function bossIdle(e) {
-  e._ai = 'move';
-  e._aiT = BOSS.idle[Math.min(e._phase, BOSS.idle.length - 1)];
+// ---------------------------------------------------------------------------
+// Boss
+// ---------------------------------------------------------------------------
+// Finite states (e._ai): move (stalk) | burstWind burst | summonWind | echoWind | chargeWind charge recover |
+// spiral | sigWind (signature wind-up) | gale (air signature, timed) | winded.
+// Each element has a signature pattern; the current element decides the toolkit, not just the colour.
+const SIGNATURE = { fire: 'meteor', water: 'tide', earth: 'quake', air: 'gale' };
+// Wind-ups whose cue is an area (telegraph effect), not a lane: the contracted `telegraph` field stays 0.
+const AREA_WINDUPS = { burst: 1, summon: 1, echo: 1, meteor: 1, quake: 1, gale: 1 };
+
+function setBossWindup(e, kind, prog) {
+  setWindup(e, kind, prog);
+  if (AREA_WINDUPS[kind]) e.telegraph = 0;
+}
+
+/** Later bosses wind up a little faster, never below BOSS.windupMin. */
+function bossWindup(state, base) {
+  return Math.max(BOSS.windupMin, base - BOSS.windupPerBoss * (bossIndex(state.wave) - 1));
+}
+
+function bossIdle(state, e) {
   clearWindup(e);
+  e.winded = 0;
+  if (e.enraged && !e._chained) {
+    // enraged: patterns come in pairs, the second one follows without the idle gap
+    e._chained = true;
+    const p = state.player;
+    bossChoose(state, e, Math.hypot(p.x - e.x, p.y - e.y));
+    return;
+  }
+  e._chained = false;
+  e._ai = 'move';
+  e._aiT = e.enraged ? BOSS.enrage.idle : BOSS.idle[Math.min(e._phase, BOSS.idle.length - 1)];
+}
+
+function bossWinded(state, e) {
+  e._ai = 'winded';
+  e._aiT = BOSS.winded;
+  e.winded = BOSS.winded;
+  clearWindup(e);
+  emit(state, { type: 'bossAttack', kind: 'winded', x: e.x, y: e.y, element: e.element });
 }
 
 function minionCount(state) {
@@ -1259,57 +1310,208 @@ function bossSummon(state, e) {
   emit(state, { type: 'enemyShoot', x: e.x, y: e.y, element: e.element, summon: true });
 }
 
+/** Phase 2+: "elemental echo", stationary spitter turrets in the boss's element that expire after echo.life s. */
+function bossEcho(state, e) {
+  const E = BOSS.echo;
+  const room = BOSS.maxMinions - minionCount(state);
+  const n = Math.min(E.count, room, CAPS.enemies - state.enemies.length);
+  const base = random(state) * TAU;
+  for (let i = 0; i < n; i++) {
+    const a = base + (i / Math.max(1, n)) * TAU;
+    const t = spawnEnemy(state, 'spitter', e.element, e.x + Math.cos(a) * (e.r + E.range), e.y + Math.sin(a) * (e.r + E.range), {
+      minion: true,
+    });
+    t.life = E.life; // extra: seconds left before the turret expires (only set on echo turrets)
+    t._speed = 0; // a turret: it aims and fires but never walks
+    t._fireT = 0.6 + i * 0.4;
+    state.waveInfo.total++;
+  }
+  emit(state, { type: 'enemyShoot', x: e.x, y: e.y, element: e.element, summon: true });
+}
+
+/** Expire a timed enemy (echo turret) without the score / drops of a kill. */
+function expireEnemy(state, e) {
+  if (e._dead) return;
+  e._dead = true;
+  e.hp = 0;
+  emit(state, { type: 'enemyDie', x: e.x, y: e.y, element: e.element, enemyType: e.type, score: 0, superEffective: false, expired: true });
+}
+
+function bossStartWindup(state, e, kind, dur, effectR) {
+  e._ai = kind === 'burst' || kind === 'summon' || kind === 'echo' || kind === 'charge' ? kind + 'Wind' : 'sigWind';
+  e._sig = kind;
+  e._aiT = dur;
+  e._windDur = dur;
+  setBossWindup(e, kind, 0);
+  const extra = { _follow: e.id, _forAi: e._ai };
+  if (kind === 'charge') {
+    extra.angle = e.angle;
+    extra.len = BOSS.chargeSpeed * BOSS.chargeTime;
+  }
+  addEffect(state, 'telegraph', e.element, e.x, e.y, effectR, dur, extra);
+}
+
 function bossChoose(state, e, d) {
+  const k = bossIndex(state.wave);
+  const sig = SIGNATURE[e.element] || 'meteor';
+  const first = e._patterns === 0;
   const opts = [['burst', 3]];
-  if (minionCount(state) < BOSS.maxMinions - 2) opts.push(['summon', e._phase >= 1 ? 2 : 1.5]);
+  if (e._phase >= 1) {
+    if (minionCount(state) < BOSS.maxMinions - 1) opts.push(['echo', 2]);
+  } else if (minionCount(state) < BOSS.maxMinions - 2) opts.push(['summon', 1.5]);
   opts.push(['charge', d > 380 ? 3 : 1.5]);
   if (e._phase >= 1) opts.push(['spiral', 2.2]);
-  let sum = 0;
-  for (const o of opts) {
-    if (o[0] === e._lastPattern) o[1] *= 0.25;
-    sum += o[1];
-  }
-  let roll = random(state) * sum;
-  let choice = opts[0][0];
-  for (const o of opts) {
-    roll -= o[1];
-    if (roll <= 0) {
-      choice = o[0];
-      break;
+  // the first pattern teaches: a first boss opens with its signature, later bosses with a shared pattern
+  if (!(first && k >= 2)) opts.push([sig, BOSS.signatureWeight]);
+  let choice;
+  if (first && k === 1) choice = sig;
+  else {
+    let sum = 0;
+    for (const o of opts) {
+      if (o[0] === e._lastPattern) o[1] *= 0.25;
+      sum += o[1];
+    }
+    let roll = random(state) * sum;
+    choice = opts[0][0];
+    for (const o of opts) {
+      roll -= o[1];
+      if (roll <= 0) {
+        choice = o[0];
+        break;
+      }
     }
   }
   e._lastPattern = choice;
-  if (choice === 'burst') {
-    e._ai = 'burstWind';
-    e._aiT = BOSS.burstWindup;
-    setWindup(e, 'burst', 0);
-    addEffect(state, 'telegraph', e.element, e.x, e.y, e.r + 40, BOSS.burstWindup, { _follow: e.id, _forAi: 'burstWind' });
-  } else if (choice === 'summon') {
-    e._ai = 'summonWind';
-    e._aiT = BOSS.summonWindup;
-    setWindup(e, 'summon', 0);
-    addEffect(state, 'telegraph', e.element, e.x, e.y, e.r + 60, BOSS.summonWindup, { _follow: e.id, _forAi: 'summonWind' });
-  } else if (choice === 'charge') {
-    e._ai = 'chargeWind';
-    e._aiT = BOSS.chargeWindup;
-    setWindup(e, 'charge', 0);
-    addEffect(state, 'telegraph', e.element, e.x, e.y, e.r + 16, BOSS.chargeWindup, {
-      angle: e.angle, len: BOSS.chargeSpeed * BOSS.chargeTime, _follow: e.id, _forAi: 'chargeWind',
-    });
-  } else {
+  e._patterns++;
+  if (choice === 'burst') bossStartWindup(state, e, 'burst', bossWindup(state, BOSS.burstWindup), e.r + 40);
+  else if (choice === 'summon') bossStartWindup(state, e, 'summon', bossWindup(state, BOSS.summonWindup), e.r + 60);
+  else if (choice === 'echo') bossStartWindup(state, e, 'echo', bossWindup(state, BOSS.echo.windup), e.r + BOSS.echo.range + 20);
+  else if (choice === 'charge') bossStartWindup(state, e, 'charge', bossWindup(state, BOSS.chargeWindup), e.r + 16);
+  else if (choice === 'spiral') {
     e._ai = 'spiral';
     e._aiT = BOSS.spiralTime;
     e._spiralCd = 0;
     e._spiralA = random(state) * TAU;
+  } else {
+    // signature pattern
+    const dur = bossWindup(state, BOSS.signatureWindup);
+    bossStartWindup(state, e, choice, dur, e.r + 50);
+    emit(state, { type: 'bossAttack', kind: choice, x: e.x, y: e.y, element: e.element });
+    if (choice === 'quake') {
+      // pillars are telegraphed where they will rise
+      const Q = BOSS.quake;
+      const p = state.player;
+      e._pillars = [];
+      for (let i = 0; i < Q.pillars; i++) {
+        let px = e.x;
+        let py = e.y;
+        for (let tries = 0; tries < 6; tries++) {
+          const a = random(state) * TAU;
+          const rad = rr(state, Q.pillarMin, Q.pillarMax);
+          px = clamp(e.x + Math.cos(a) * rad, Q.pillarR + 20, W - Q.pillarR - 20);
+          py = clamp(e.y + Math.sin(a) * rad, Q.pillarR + 20, H - Q.pillarR - 20);
+          if (dist2(px, py, p.x, p.y) > Q.pillarClear * Q.pillarClear) break;
+        }
+        e._pillars.push(px, py);
+        addEffect(state, 'telegraph', e.element, px, py, Q.pillarR + 10, dur, { _follow: e.id, _forAi: 'sigWind', _pinned: true });
+      }
+    } else if (choice === 'tide') {
+      const T = BOSS.tide;
+      const half = Math.min(T.halfMax, T.half + T.perBossHalf * (k - 1));
+      e._tideSide = random(state) < 0.5 ? -1 : 1;
+      e.angle = Math.atan2(state.player.y - e.y, state.player.x - e.x);
+      addEffect(state, 'tidewarn', e.element, e.x, e.y, half, dur, {
+        angle: e.angle, len: Math.hypot(W, H), _half: half, _gap: T.gap, _off: e._tideSide * (half + T.gap / 2), _follow: e.id, _forAi: 'sigWind',
+      });
+    }
   }
+}
+
+// --- signature pattern launches (called when the wind-up ends) ---
+function bossMeteor(state, e) {
+  const M = BOSS.meteor;
+  const k = bossIndex(state.wave);
+  const p = state.player;
+  const n = Math.min(M.countMax, M.count + M.perBoss * (k - 1));
+  const spread = M.spread + M.spreadPer * n;
+  const cx = clamp(p.x + p.vx * M.lead, 40, W - 40);
+  const cy = clamp(p.y + p.vy * M.lead, 40, H - 40);
+  for (let i = 0; i < n; i++) {
+    let x = cx;
+    let y = cy;
+    if (i > 0) {
+      const a = (i / n) * TAU + random(state) * (TAU / n);
+      const rad = rr(state, 0.35, 1) * spread;
+      x = clamp(cx + Math.cos(a) * rad, 40, W - 40);
+      y = clamp(cy + Math.sin(a) * rad, 40, H - 40);
+    }
+    addEffect(state, 'meteor', 'fire', x, y, M.radius, M.fuse + i * 0.04, { _hazard: true, _dmg: e._boltDmg * (M.dmg / ENEMIES.boss.boltDmg) });
+  }
+  emit(state, { type: 'enemyShoot', x: e.x, y: e.y, element: e.element, burst: true });
+}
+
+function bossTide(state, e) {
+  const T = BOSS.tide;
+  const k = bossIndex(state.wave);
+  const half = Math.min(T.halfMax, T.half + T.perBossHalf * (k - 1));
+  const a = e.angle;
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  const px = -sa;
+  const py = ca;
+  const dmg = e._boltDmg * (T.dmg / ENEMIES.boss.boltDmg);
+  for (let s = -1; s <= 1; s += 2) {
+    // the gap is centred `_off` to the side of the aim line; the walls sit either side of it
+    const off = e._tideSide * (half + T.gap / 2) + s * (T.gap / 2 + half);
+    addProjectile(state, {
+      owner: 'enemy', kind: 'tide', element: e.element,
+      x: e.x + px * off + ca * (e.r + 10), y: e.y + py * off + sa * (e.r + 10),
+      vx: ca * T.speed, vy: sa * T.speed, r: T.thick / 2, angle: a, life: T.maxLife,
+      _dmg: dmg, _half: half, _hitP: false, _dodged: false,
+    });
+  }
+  emit(state, { type: 'shock', x: e.x, y: e.y, element: e.element, power: T.shock, kind: 'roar' });
+}
+
+function bossQuake(state, e) {
+  const Q = BOSS.quake;
+  const k = bossIndex(state.wave);
+  const rings = Math.min(Q.ringsMax, Q.rings + Q.perBoss * (k - 1));
+  const dmg = e._boltDmg * (Q.ringDmg / ENEMIES.boss.boltDmg);
+  for (let i = 0; i < rings; i++) {
+    const delay = i * Q.ringGap;
+    addEffect(state, 'quakering', 'earth', e.x, e.y, Q.ringMaxR, delay + Q.ringMaxR / Q.ringSpeed, {
+      _hazard: true, _delay: delay, _R: 0, _gapA: random(state) * TAU, _gapW: Q.gapW, _dmg: dmg, _hitP: false, _dodged: false,
+    });
+  }
+  const pts = e._pillars || [];
+  for (let i = 0; i + 1 < pts.length; i += 2) {
+    addEffect(state, 'pillar', 'earth', pts[i], pts[i + 1], Q.pillarR, Q.pillarLife, { _hazard: true, _dmg: e._boltDmg * (Q.pillarDmg / ENEMIES.boss.boltDmg) });
+  }
+  e._pillars = null;
+  addEffect(state, 'slam', 'earth', e.x, e.y, e.r + 60, 0.45);
+  emit(state, { type: 'shock', x: e.x, y: e.y, element: e.element, power: Q.shock, kind: 'quake' });
+}
+
+function bossGaleStart(state, e) {
+  const G = BOSS.gale;
+  e._ai = 'gale';
+  e._aiT = G.time;
+  e._windDur = G.time;
+  e._spiralCd = 0.2;
+  e._rings = G.pairs;
+  clearWindup(e);
+  addEffect(state, 'gale', e.element, e.x, e.y, 460, G.time, { _follow: e.id, _forAi: 'gale' });
+  emit(state, { type: 'shock', x: e.x, y: e.y, element: e.element, power: 0.4, kind: 'roar' });
 }
 
 function aiBoss(state, e, dt, sm, ux, uy, d) {
   const sp = e._speed * sm;
+  const wd = e._windDur || 1;
   switch (e._ai) {
     case 'burstWind':
       e._aiT -= dt;
-      setWindup(e, 'burst', 1 - e._aiT / BOSS.burstWindup);
+      setBossWindup(e, 'burst', 1 - e._aiT / wd);
       e._mx = 0;
       e._my = 0;
       e.angle = Math.atan2(uy, ux);
@@ -1331,24 +1533,26 @@ function aiBoss(state, e, dt, sm, ux, uy, d) {
         bossRing(state, e, e._spiralA + (e._rings % 2) * (Math.PI / n));
         e._rings--;
         e._aiT = BOSS.burstGap;
-        if (e._rings <= 0) bossIdle(e);
+        if (e._rings <= 0) bossIdle(state, e);
       }
       return;
     }
     case 'summonWind':
+    case 'echoWind':
       e._aiT -= dt;
-      setWindup(e, 'summon', 1 - e._aiT / BOSS.summonWindup);
+      setBossWindup(e, e._ai === 'echoWind' ? 'echo' : 'summon', 1 - e._aiT / wd);
       e._mx = 0;
       e._my = 0;
       if (e._aiT <= 0) {
-        bossSummon(state, e);
-        bossIdle(e);
+        if (e._ai === 'echoWind') bossEcho(state, e);
+        else bossSummon(state, e);
+        bossIdle(state, e);
       }
       return;
     case 'chargeWind': {
       e._aiT -= dt;
-      const prog = clamp(1 - e._aiT / BOSS.chargeWindup, 0, 1);
-      setWindup(e, 'charge', prog);
+      const prog = clamp(1 - e._aiT / wd, 0, 1);
+      setBossWindup(e, 'charge', prog);
       if (prog < 0.7) {
         e._dirX = ux;
         e._dirY = uy;
@@ -1376,7 +1580,7 @@ function aiBoss(state, e, dt, sm, ux, uy, d) {
       e._aiT -= dt;
       e._mx = 0;
       e._my = 0;
-      if (e._aiT <= 0) bossIdle(e);
+      if (e._aiT <= 0) bossIdle(state, e);
       return;
     case 'spiral': {
       e._aiT -= dt;
@@ -1392,9 +1596,60 @@ function aiBoss(state, e, dt, sm, ux, uy, d) {
       e._mx = ux * sp * 0.35;
       e._my = uy * sp * 0.35;
       e.angle += dt * 4;
-      if (e._aiT <= 0) bossIdle(e);
+      if (e._aiT <= 0) bossIdle(state, e);
       return;
     }
+    case 'sigWind': {
+      e._aiT -= dt;
+      setBossWindup(e, e._sig, 1 - e._aiT / wd);
+      e._mx = 0;
+      e._my = 0;
+      // the tide lane is locked where it was aimed; the others track the player
+      if (e._sig !== 'tide') e.angle = Math.atan2(uy, ux);
+      if (e._aiT <= 0) {
+        clearWindup(e);
+        if (e._sig === 'meteor') bossMeteor(state, e);
+        else if (e._sig === 'tide') bossTide(state, e);
+        else if (e._sig === 'quake') bossQuake(state, e);
+        if (e._sig === 'gale') bossGaleStart(state, e);
+        else bossWinded(state, e);
+      }
+      return;
+    }
+    case 'gale': {
+      const G = BOSS.gale;
+      const k = bossIndex(state.wave);
+      e._aiT -= dt;
+      e._mx = 0;
+      e._my = 0;
+      e.angle = Math.atan2(uy, ux);
+      const p = state.player;
+      if (p.dashing <= 0 && p.hp > 0 && d > e.r + p.r) {
+        // drag the player in; a dash ignores it, walking away resists most of it
+        const f = Math.min(G.pullMax, G.pull + G.perBoss * (k - 1)) * dt;
+        p._kx -= ux * f;
+        p._ky -= uy * f;
+      }
+      e._spiralCd -= dt;
+      if (e._spiralCd <= 0 && e._rings > 0) {
+        e._rings--;
+        e._spiralCd += G.pairGap;
+        const bs = ENEMIES.boss.boltSpeed * G.boltSpeed;
+        const a = leadAngle(e, p, bs, 80);
+        fireBolt(state, e, a - G.pairSpread, bs, ENEMIES.boss.boltR);
+        fireBolt(state, e, a + G.pairSpread, bs, ENEMIES.boss.boltR);
+        emit(state, { type: 'enemyShoot', x: e.x, y: e.y, element: e.element });
+      }
+      if (e._aiT <= 0) bossWinded(state, e);
+      return;
+    }
+    case 'winded':
+      e._aiT -= dt;
+      e.winded = Math.max(0, e._aiT);
+      e._mx = 0;
+      e._my = 0;
+      if (e._aiT <= 0) bossIdle(state, e);
+      return;
     default: {
       // stalk: close in to mid range, then circle
       e._aiT -= dt;
@@ -1418,6 +1673,9 @@ function checkBossPhase(state, e) {
   const others = ELEMENTS.filter((x) => x !== e.element);
   e.element = pick(state, others);
   e.stun = 0;
+  e.winded = 0;
+  e._pillars = null;
+  e._chained = false;
   clearWindup(e);
   // shrug off the hit and answer with an immediate ring
   e._ai = 'burst';
@@ -1427,6 +1685,83 @@ function checkBossPhase(state, e) {
   dropPickup(state, 'heal', e.x, e.y + e.r);
   dropPickup(state, 'blow', e.x, e.y + e.r);
   emit(state, { type: 'bossPhase', x: e.x, y: e.y, element: e.element, phase: e._phase });
+  if (e._phase >= 2 && !e.enraged) {
+    e.enraged = true;
+    emit(state, { type: 'bossAttack', kind: 'enrage', x: e.x, y: e.y, element: e.element });
+    emit(state, { type: 'shock', x: e.x, y: e.y, element: e.element, power: BOSS.enrage.shock, kind: 'roar' });
+  }
+}
+
+/** Boss ground hazards (effects with `_hazard`), stepped from updateEffects. New effects are queued in `later`. */
+function updateBossHazard(state, f, dt, later) {
+  const p = state.player;
+  if (f.kind === 'meteor') {
+    if (f.life > 0) return;
+    const M = BOSS.meteor;
+    const rs = f.r + p.r * 0.6;
+    if (dist2(f.x, f.y, p.x, p.y) < rs * rs) {
+      if (p.dashing > 0) perfectDodge(state, f.x, f.y);
+      else damagePlayer(state, f._dmg, f.x, f.y, M.kb, 'fire');
+    }
+    later.push(['burnpatch', 'fire', f.x, f.y, M.burnR, M.burnLife, { _hazard: true, _dmg: f._dmg * (M.burnDmg / M.dmg) }]);
+    later.push(['explosion', 'fire', f.x, f.y, f.r, 0.3, null]);
+    emit(state, { type: 'explosion', x: f.x, y: f.y, r: f.r, element: 'fire' });
+    emit(state, { type: 'shock', x: f.x, y: f.y, element: 'fire', power: M.shock, kind: 'meteor' });
+  } else if (f.kind === 'burnpatch') {
+    const rs = f.r + p.r * 0.5;
+    if (p.dashing <= 0 && dist2(f.x, f.y, p.x, p.y) < rs * rs) damagePlayer(state, f._dmg, f.x, f.y, 0, 'fire');
+  } else if (f.kind === 'quakering') {
+    const Q = BOSS.quake;
+    const age = f.maxLife - f.life;
+    if (age < f._delay) return;
+    f._R = Math.min(f.r, (age - f._delay) * Q.ringSpeed); // extra: current ring radius (render)
+    if (f._R >= f.r) {
+      f.life = 0;
+      return;
+    }
+    const dx = p.x - f.x;
+    const dy = p.y - f.y;
+    const dd = Math.hypot(dx, dy);
+    if (Math.abs(dd - f._R) > Q.ringThick / 2 + p.r * 0.6) return;
+    let da = Math.atan2(dy, dx) - f._gapA;
+    da = Math.abs((((da + Math.PI) % TAU) + TAU) % TAU - Math.PI);
+    if (da < f._gapW / 2) return; // slipped through the gap
+    if (p.dashing > 0) {
+      if (!f._dodged) {
+        f._dodged = true;
+        perfectDodge(state, p.x, p.y);
+      }
+    } else if (!f._hitP && damagePlayer(state, f._dmg, f.x, f.y, Q.ringKb, 'earth')) f._hitP = true;
+  } else if (f.kind === 'pillar') {
+    const Q = BOSS.quake;
+    if (f.maxLife - f.life < Q.pillarRise) return;
+    const rs = f.r + p.r;
+    if (p.dashing <= 0 && dist2(f.x, f.y, p.x, p.y) < rs * rs) damagePlayer(state, f._dmg, f.x, f.y, Q.pillarKb, 'earth');
+  }
+}
+
+/** A tide wall: a segment of half-length `_half` perpendicular to its travel; it pierces, hits once, knocks the player along. */
+function updateTide(state, pr) {
+  const p = state.player;
+  const ca = Math.cos(pr.angle);
+  const sa = Math.sin(pr.angle);
+  const rx = p.x - pr.x;
+  const ry = p.y - pr.y;
+  const along = rx * ca + ry * sa;
+  const across = -rx * sa + ry * ca;
+  const m = pr._half + pr.r;
+  if (pr.x < -m || pr.x > W + m || pr.y < -m || pr.y > H + m) {
+    pr._dead = true;
+    return;
+  }
+  if (Math.abs(along) < pr.r + p.r * 0.8 && Math.abs(across) < pr._half) {
+    if (p.dashing > 0) {
+      if (!pr._dodged) {
+        pr._dodged = true;
+        perfectDodge(state, p.x, p.y);
+      }
+    } else if (!pr._hitP && damagePlayer(state, pr._dmg, p.x - ca, p.y - sa, BOSS.tide.kb, pr.element)) pr._hitP = true;
+  }
 }
 
 const AI = { grunt: aiGrunt, swarm: aiSwarm, spitter: aiSpitter, brute: aiBrute, boss: aiBoss };
@@ -1439,6 +1774,14 @@ function updateEnemies(state, dt) {
     if (e._dead) continue;
     const def = ENEMIES[e.type];
     if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt);
+    if (e.life !== undefined) {
+      // boss echo turret: expires quietly
+      e.life -= dt;
+      if (e.life <= 0) {
+        expireEnemy(state, e);
+        continue;
+      }
+    }
     if (e._atkCd > 0) e._atkCd -= dt;
     if (e._fleeT > 0) e._fleeT = Math.max(0, e._fleeT - dt);
 
@@ -1664,6 +2007,12 @@ function updateProjectiles(state, dt) {
     }
     pr.x += pr.vx * dt;
     pr.y += pr.vy * dt;
+    if (pr.kind === 'tide') {
+      // boss tide wall: segment collision, pierces, never dies on a hit
+      updateTide(state, pr);
+      if (pr.life <= 0) pr._dead = true;
+      continue;
+    }
     const outside = pr.x < -pr.r || pr.x > W + pr.r || pr.y < -pr.r || pr.y > H + pr.r;
 
     if (pr.owner === 'enemy') {
@@ -1738,7 +2087,10 @@ function updateProjectiles(state, dt) {
 }
 
 function updateEffects(state, dt) {
-  for (const f of state.effects) {
+  const later = []; // effects spawned by hazards this step (added after the loop; addEffect may shift the array)
+  const n = state.effects.length;
+  for (let i = 0; i < n; i++) {
+    const f = state.effects[i];
     f.life -= dt;
     if (f._follow) {
       const e = state.enemies.find((o) => o.id === f._follow);
@@ -1747,12 +2099,16 @@ function updateEffects(state, dt) {
       } else {
         // stay in sync with the wind-up (a stun pauses it)
         f.life = Math.max(0.001, Math.min(f.maxLife, e._aiT));
-        f.x = e.x;
-        f.y = e.y;
-        if (f.angle !== undefined) f.angle = e.angle;
+        if (!f._pinned) {
+          f.x = e.x;
+          f.y = e.y;
+        }
+        if (f.angle !== undefined && f.kind !== 'tidewarn') f.angle = e.angle;
       }
     }
+    if (f._hazard) updateBossHazard(state, f, dt, later);
   }
+  for (const a of later) addEffect(state, a[0], a[1], a[2], a[3], a[4], a[5], a[6]);
 }
 
 function updatePickups(state, dt) {
