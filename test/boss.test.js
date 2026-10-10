@@ -397,3 +397,17 @@ test('full fights: the smart bot (god mode) beats every element boss in bounded 
     assert.equal(g.enemies.length, 0, `${el}: nothing left after the boss`);
   }
 });
+
+test('hazards die with the boss: meteors still in the air neither detonate nor leave burning patches', () => {
+  const { g, b, p } = bossArena('fire');
+  run(g, (s) => s.effects.some((f) => f.kind === 'meteor'), 60 * 6);
+  assert.ok(g.effects.filter((f) => f.kind === 'meteor').length >= BOSS.meteor.count);
+  b.hp = 1;
+  const ev = run(g, () => b._dead, 60 * 2, () => ({ ...IDLE, aimX: b.x, aimY: b.y, fire: true, switchTo: 'water' }));
+  assert.ok(b._dead, 'boss killed with meteors pending');
+  const death = ev.slice(ev.findIndex((e) => e.type === 'enemyDie' && e.enemyType === 'boss'));
+  assert.ok(!death.some((e) => e.type === 'explosion' || e.type === 'shock' || e.type === 'playerHit'), 'no detonation on the death step');
+  assert.equal(g.effects.filter((f) => f._hazard || f.kind === 'meteor' || f.kind === 'burnpatch').length, 0);
+  const after = run(g, () => false, 60 * 2, () => ({ ...IDLE, aimX: p.x, aimY: p.y }));
+  assert.ok(!after.some((e) => e.type === 'playerHit'), 'nothing hurts the player after the boss is dead');
+});

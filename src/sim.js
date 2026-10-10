@@ -680,7 +680,14 @@ function killEnemy(state, e) {
     // The titan's death takes its minions with it.
     for (const o of state.enemies) if (!o._dead && o._minion) killEnemy(state, o);
     for (const pr of state.projectiles) if (pr.owner === 'enemy') pr._dead = true;
-    for (const f of state.effects) if (f._hazard) f.life = 0;
+    // Hazards die with it. updateEffects runs later in this same step, so a hazard that merely had
+    // its life zeroed would still fire (meteors would all detonate at once and leave burning patches).
+    for (const f of state.effects) {
+      if (f._hazard) {
+        f._hazard = false;
+        f.life = 0;
+      }
+    }
   } else if (!e._minion || random(state) < 0.5) {
     const r = random(state);
     const heal = def.healDrop * m.healDrop;
@@ -1102,6 +1109,9 @@ function aiSpitter(state, e, dt, sm, ux, uy, d) {
     }
     return;
   }
+  // a stun cancels the wind-up into 'recover' (see updateEnemies); a spitter has no recover stance, so it
+  // just resumes moving (otherwise it would sit in a state the scatter rule does not recognise)
+  if (e._ai === 'recover') e._ai = 'move';
   e.angle = Math.atan2(uy, ux);
   // fire sooner at a sitting duck: a player standing still or busy punishing a recovering brute
   e._fireT -= dt * (p._stillT > 1 || SCRATCH.bruteRecover ? 1.8 : 1);

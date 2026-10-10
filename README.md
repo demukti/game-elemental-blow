@@ -51,11 +51,20 @@ Menus: Enter or Space starts, Enter resumes, R or Enter restarts after game over
 - Earth: short-range slam that stuns and knocks back.
 - Air: fast 3-dart volley.
 
-**Blow meter.** Dealing damage and getting kills fills the meter. At 100, Space unleashes a nova that damages, burns, slows and stuns everything nearby and gives brief invulnerability.
+**Dash.** Shift or right mouse button. Brief invulnerability, and you phase through enemies, dealing a little damage of your current element and shoving them aside. A bolt or a charge that would have hit you mid-dash is a perfect dodge: it fizzles and charges the Blow meter. A press just before the cooldown ends is remembered.
+
+**Blow meter.** Dealing damage and getting kills fills the meter. At 100, Space unleashes a nova that damages, burns, slows and stuns everything nearby and gives brief invulnerability. A fire nova also spreads burn to nearby enemies, an air nova throws enemies further. Holding a full meter builds a surge: a little extra move speed now and up to +30% nova damage after 15 s, so it is a choice between cashing in and holding. After a nova your blows recharge faster for a moment.
 
 **Enemies.** Grunts (flank in groups and lunge when close, from wave 2), swarms (small and fast; a pack circles you, then dives together), spitters (keep distance, flank your aim and lead their bolts; a 3-bolt fan from wave 9) and brutes (slow, heavy, telegraph then charge where you are heading; they raise a shield when you hold their counter at range). Survivors scatter for a moment after a nova or a quick 3-kill burst.
 
-**Boss.** Every 5th wave: a big enemy that fires bolt bursts and spirals, summons minions and charges. It changes element at 66% and 33% HP, and later bosses are tougher.
+**Boss.** Every 5th wave: the Elemental Titan. It fires bolt bursts and spirals, summons minions and charges, and its current element gives it a signature attack, always telegraphed and always followed by a short winded window in which it stands still and takes 1.5x damage:
+
+- Fire: meteor rain. Target circles land around you (the first one where you are heading) and detonate after a second, leaving burning ground.
+- Water: tide. Two wide walls sweep toward you with a marked gap between them: sidestep into the gap or dash through.
+- Earth: quake. Expanding rings with a marked safe gap, plus stone pillars that hurt on contact; dash through a ring or stand in the gap.
+- Air: gale. The Titan drags you toward itself while firing aimed bolt pairs; a dash breaks the pull.
+
+It changes element at 66% and 33% HP (and so changes signature). From the second phase it answers with echo turrets instead of minions, and in the last phase it enrages: shorter pauses and chained patterns. Later bosses have more HP, bigger patterns and shorter wind-ups.
 
 Between waves you pick 1 of 3 random upgrades (damage per element, speed, cooldowns, healing, and more). Clearing a wave heals a little; orbs dropped by enemies restore health or charge the Blow meter. Kill combos multiply score.
 
