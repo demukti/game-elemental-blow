@@ -1,4 +1,4 @@
-// Elemental Blow - canvas renderer. Zero imports; all drawing, particles, shake, damage numbers.
+// Elemental Blow - canvas renderer. Zero imports; all drawing, particles, shake/shock camera, damage numbers.
 const W = 1600, H = 900;
 const TAU = Math.PI * 2;
 const COLORS = { fire: '#ff6a3d', water: '#3da9ff', earth: '#8bd450', air: '#e8e6ff' };
@@ -271,6 +271,99 @@ export function createRenderer(canvas) {
   function addShake(v) { shake = Math.min(34, shake + v); }
   function flash(color, a) { flashColor = color; flashA = Math.max(flashA, a); }
 
+  // ---------- shock: shudder + zoom punch + shockwave ring + flash ----------
+  // All of it is camera transform and a few stroked arcs: no extra full-screen passes. With
+  // prefers-reduced-motion the jitter, zoom and rotation scale to 0; rings and flash stay.
+  let MOTION = 1;
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) MOTION = 0;
+  } catch (_) { /* no matchMedia */ }
+  // Camera caps: the combined shake+shudder offset (world px), the total magnification and the
+  // rotation wobble. The overscan in render() derives from these, so the floor always covers the clip.
+  const OFF_MAX = 20, ZOOM_MAX = 1.06, ROT_MAX = 0.006;
+  let shud = 0, shudF = 30, shudD = 11, shudAx = 1, shudAy = 0, shudPh = 0;   // shudder envelope
+  let zoomK = 0, zoomT = 0, zoomHold = 0, zoomDur = 0.3, zoomX = W / 2, zoomY = H / 2;
+  let rotA = 0, vigA = 0, camZoom = 1, camOff = 0;
+  // Per-kind multipliers over the standard impact; unknown kinds use STD. Any key can be
+  // overridden per call through opts.
+  const STD = { jitter: 1, freq: 30, decay: 11, zoom: 1, rot: 0.15, ring: 1, flash: 1, vig: 1, hold: 0 };
+  const KINDS = {
+    quake: { jitter: 0.7, freq: 8, decay: 2.2, zoom: 0.3, rot: 1, ring: 0.7, flash: 0.4, vig: 1.2 },
+    roar: { jitter: 0.15, zoom: 0.5, rot: 0, ring: 1.4, flash: 1.3, vig: 0.6 },
+  };
+  const MAXW = 6;
+  const waves = [];
+  for (let i = 0; i < MAXW; i++) waves.push({ life: 0, max: 1, x: 0, y: 0, r0: 0, r1: 0, w: 10, color: '#fff' });
+  let wHead = 0;
+  function shockwave(x, y, color, r0, r1, w, life) {
+    const s = waves[wHead]; wHead = (wHead + 1) % MAXW;
+    s.x = x; s.y = y; s.color = color; s.r0 = r0; s.r1 = r1; s.w = w; s.life = s.max = life;
+  }
+  // shock(x, y, power 0..1, color, opts?) with opts: kind ('quake' | 'roar' | other = standard),
+  // dx/dy (shudder direction), r (ring radius), plus any STD key to override (jitter, zoom, ring, flash, hold...).
+  function shock(x, y, power, color, opts) {
+    const o = opts || STD, k = KINDS[o.kind] || STD;
+    const get = (name, d) => num(o[name], num(k[name], num(STD[name], d)));
+    const p = clamp(num(power, 0.5), 0, 1);
+    x = clamp(num(x, lastPlayer.x), 0, W); y = clamp(num(y, lastPlayer.y), 0, H);
+    const c = typeof color === 'string' ? color : col(color);
+    // shudder: oscillating, decays with its own rate; biggest live request wins
+    const amp = 12 * p * get('jitter', 1) * MOTION;
+    if (amp > shud) {
+      shud = amp; shudF = get('freq', 30); shudD = get('decay', 11); shudPh = Math.random() * TAU;
+      const dx = num(o.dx, 0), dy = num(o.dy, 0), L = Math.hypot(dx, dy);
+      if (L > 1e-6) { shudAx = dx / L; shudAy = dy / L; }
+      else { const a = Math.random() * TAU; shudAx = Math.cos(a); shudAy = Math.sin(a); }
+    }
+    rotA = Math.max(rotA, ROT_MAX * p * get('rot', 0) * MOTION);
+    // zoom punch anchored near the impact, optional hold (freeze-frame feel) before easing back
+    const zk = 0.05 * p * get('zoom', 1) * MOTION;
+    if (zk > 0 && zk >= camZoom - 1) {
+      zoomK = zk; zoomT = 0; zoomHold = clamp(get('hold', 0), 0, 0.2); zoomDur = 0.25 + 0.15 * p;
+      zoomX = clamp(x, W * 0.15, W * 0.85); zoomY = clamp(y, H * 0.15, H * 0.85);
+    }
+    // expanding ring with a thin bright leading edge
+    const rm = get('ring', 1);
+    if (rm > 0) {
+      const r1 = num(o.r, (180 + 520 * p) * rm), life = 0.3 + 0.4 * p * Math.min(rm, 1.4);
+      shockwave(x, y, c, 16 + 40 * p, r1, 6 + 16 * p, life);
+      if (p >= 0.6) shockwave(x, y, '#ffffff', 8, r1 * 0.7, 3 + 5 * p, life * 0.7);
+    }
+    const fa = (0.06 + 0.3 * p) * get('flash', 1);
+    if (fa > 0.01) flash(c, Math.min(0.6, fa));
+    if (p >= 0.6) vigA = Math.max(vigA, Math.min(0.6, 1.1 * (p - 0.5) * get('vig', 1)));
+  }
+  function updateShock(dt) {
+    shud *= Math.exp(-dt * shudD); if (shud < 0.05) shud = 0;
+    rotA *= Math.exp(-dt * 4); if (rotA < 1e-4) rotA = 0;
+    vigA = Math.max(0, vigA - dt * 3);
+    camZoom = 1;
+    if (zoomK > 0) {
+      zoomT += dt;
+      const u = clamp((zoomT - zoomHold) / zoomDur, 0, 1);
+      camZoom = 1 + zoomK * (1 - u) * (1 - u);
+      if (u >= 1) zoomK = 0;
+    }
+  }
+  function drawWaves(dt) {
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < MAXW; i++) {
+      const s = waves[i]; if (s.life <= 0) continue;
+      s.life -= dt;
+      const k = clamp(s.life / s.max, 0, 1), p = 1 - k, e = 1 - (1 - p) * (1 - p) * (1 - p);
+      const r = s.r0 + (s.r1 - s.r0) * e, band = s.w * (0.4 + 0.6 * k);
+      // three arcs stand in for a lineWidth gradient: wide faint trail, narrower body, bright edge
+      ctx.strokeStyle = s.color;
+      ctx.globalAlpha = 0.18 * k; ctx.lineWidth = band * 2;
+      ctx.beginPath(); ctx.arc(s.x, s.y, Math.max(1, r - band), 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 0.42 * k; ctx.lineWidth = band * 0.7;
+      ctx.beginPath(); ctx.arc(s.x, s.y, Math.max(1, r - band * 0.3), 0, TAU); ctx.stroke();
+      ctx.strokeStyle = '#ffffff'; ctx.globalAlpha = Math.min(1, k * 1.4); ctx.lineWidth = 1.5 + 1.5 * k;
+      ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, TAU); ctx.stroke();
+    }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  }
+
   function handleEvents(events) {
     if (!events || !events.length) return;
     for (let i = 0; i < events.length; i++) {
@@ -299,10 +392,14 @@ export function createRenderer(canvas) {
           smoke(x, y, c, 4, 90, 14, 0.5);
           ring(x, y, c, e.enemyType === 'boss' ? 160 : 55, 0.4);
           addShake(e.enemyType === 'boss' ? 26 : e.enemyType === 'brute' ? 7 : 2.5);
-          if (e.enemyType === 'boss') { flash('#ffffff', 0.5); burst(x, y, '#ffffff', 20, 500, 5, 0.8); }
+          if (e.enemyType === 'boss') {
+            flash('#ffffff', 0.5); burst(x, y, '#ffffff', 20, 500, 5, 0.8);
+            shock(x, y, 1, c, { jitter: 0.7, ring: 1.7, flash: 0, hold: 0.1 });
+          } else if (e.enemyType === 'brute') shock(x, y, 0.3, c, { jitter: 0.5, zoom: 0.6, flash: 0 });
           break;
         case 'playerHit':
           addShake(14); flash(HOSTILE, 0.38);
+          shock(x, y, 0.35, HOSTILE, { jitter: 0.8, zoom: 0.3, ring: 0, flash: 0, dx: num(e.dx, x - lastPlayer.x), dy: num(e.dy, y - lastPlayer.y) });
           sparks(x, y, HOSTILE, 14, 420, 0.4); burst(x, y, '#ffffff', 4, 220, 3, 0.3);
           addNumber(x, y - 20, '-' + Math.round(num(e.dmg, 0)) + (e.resisted ? ' RESIST' : ''), e.resisted ? '#9d93c4' : '#ff4a5e', e.resisted ? 22 : 28, true);
           break;
@@ -313,6 +410,7 @@ export function createRenderer(canvas) {
         case 'blow': {
           const r = num(e.r, 300);
           addShake(24); flash(c, 0.5);
+          shock(x, y, 1, c, { jitter: 0.6, r: r * 1.6, flash: 0, hold: 0.08 });
           ring(x, y, c, r, 0.55); ring(x, y, '#ffffff', r * 0.7, 0.4); ring(x, y, c, r * 0.4, 0.3);
           sparks(x, y, c, 40, 700, 0.6); burst(x, y, '#ffffff', 10, 400, 4, 0.5);
           break;
@@ -334,16 +432,19 @@ export function createRenderer(canvas) {
         case 'waveClear': flash('#ffffff', 0.1); break;
         case 'bossSpawn':
           addShake(30); flash(c, 0.55);
+          shock(x, y, 0.9, c, { kind: 'roar', flash: 0, hold: 0.06 });
           ring(x, y, c, 420, 0.9); ring(x, y, '#ffffff', 220, 0.6);
           burst(x, y, c, 30, 500, 5, 0.8); smoke(x, y, c, 8, 160, 24, 0.9);
           break;
         case 'bossPhase':
           addShake(18); flash(c, 0.3);
+          shock(x, y, 0.7, c, { kind: 'roar', flash: 0 });
           ring(x, y, c, 300, 0.7); burst(x, y, c, 24, 420, 4, 0.7);
           break;
         case 'explosion': {
           const r = num(e.r, 80);
           addShake(clamp(r / 14, 3, 14));
+          if (r >= 90) shock(x, y, clamp(r / 400, 0.15, 0.4), c, { zoom: 0.6, ring: 0, flash: 0 });
           burst(x, y, c, 16, r * 3.2, 4, 0.5); sparks(x, y, c, 12, r * 5, 0.4);
           smoke(x, y, c, 3, 100, r * 0.3, 0.6); ring(x, y, c, r, 0.35);
           break;
@@ -351,6 +452,7 @@ export function createRenderer(canvas) {
         case 'slam': {
           const r = num(e.r, 120);
           addShake(clamp(r / 10, 4, 16));
+          shock(x, y, clamp(r / 300, 0.2, 0.5), c, { zoom: 0.6, ring: 0, flash: 0 });
           smoke(x, y, c, 6, r * 2, 18, 0.7); sparks(x, y, c, 14, r * 4, 0.45); ring(x, y, c, r, 0.4);
           break;
         }
@@ -362,11 +464,17 @@ export function createRenderer(canvas) {
           break;
         case 'gameOver':
           addShake(28); flash(HOSTILE, 0.6);
+          shock(lastPlayer.x, lastPlayer.y, 1, HOSTILE, { kind: 'quake', zoom: 0.8, flash: 0, hold: 0.12 });
           burst(lastPlayer.x, lastPlayer.y, col(lastPlayer.element), 40, 600, 5, 1.1);
           ring(lastPlayer.x, lastPlayer.y, HOSTILE, 360, 0.9);
           break;
         case 'denied':
           addShake(2); ring(lastPlayer.x, lastPlayer.y, '#ff6a7a', 40, 0.25);
+          break;
+        // Generic impact for the sim to emit without renderer changes:
+        // { type: 'shock', x, y, element, power (0..1), kind?: 'quake' | 'roar' | ..., dx?, dy?, r? }
+        case 'shock':
+          shock(x, y, num(e.power, 0.5), c, { kind: e.kind, dx: e.dx, dy: e.dy, r: e.r });
           break;
         default: break;
       }
@@ -859,9 +967,28 @@ export function createRenderer(canvas) {
     shake *= Math.exp(-dt * 9);
     if (shake < 0.05) shake = 0;
     flashA = Math.max(0, flashA - dt * 2.4);
+    updateShock(dt);
+
+    // camera: random shake + oscillating shudder (capped together), rotation wobble, zoom punch
+    let offX = 0, offY = 0;
+    if (shake > 0) { offX += (Math.random() - 0.5) * shake * 2; offY += (Math.random() - 0.5) * shake * 2; }
+    if (shud > 0) {
+      const s1 = Math.sin(t * shudF * TAU + shudPh), s2 = Math.sin(t * shudF * TAU * 0.71 + shudPh * 2) * 0.5;
+      offX += shud * (shudAx * s1 - shudAy * s2); offY += shud * (shudAy * s1 + shudAx * s2);
+    }
+    camOff = Math.hypot(offX, offY);
+    if (camOff > OFF_MAX) { offX *= OFF_MAX / camOff; offY *= OFF_MAX / camOff; camOff = OFF_MAX; }
+    const rot = rotA > 0 ? rotA * Math.sin(t * 9 * TAU + shudPh) : 0;
+    // Overscan from the smooth envelopes (not the per-frame offset, which would pump) so that the
+    // offset and the rotation never expose the clip's margins; the zoom punch is anchored inside the
+    // arena and only adds coverage. Total magnification stays under ZOOM_MAX.
+    const over = Math.min(ZOOM_MAX, 1 + 2 * Math.min(OFF_MAX, shake + shud * 1.12) / H + 1.8 * rotA);
+    if (camZoom * over > ZOOM_MAX) camZoom = ZOOM_MAX / over;
 
     ctx.save();
-    if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * 2, (Math.random() - 0.5) * shake * 2);
+    if (offX || offY) ctx.translate(offX, offY);
+    if (over > 1 || rot) { ctx.translate(W / 2, H / 2); ctx.rotate(rot); ctx.scale(over, over); ctx.translate(-W / 2, -H / 2); }
+    if (camZoom > 1) { ctx.translate(zoomX, zoomY); ctx.scale(camZoom, camZoom); ctx.translate(-zoomX, -zoomY); }
     drawFloor(dt, state);
     if (!state) {
       // menu backdrop
@@ -911,10 +1038,13 @@ export function createRenderer(canvas) {
       for (let i = 0; i < pr.length; i++) if (pr[i]) drawProjectile(pr[i]);
     }
     drawParticles();
+    drawWaves(dt);
     drawNumbers(dt);
     ctx.restore();
 
     ctx.drawImage(vignetteCanvas, 0, 0);
+    // brief extra vignette darkening after big shocks (one blit, ~0.2 s)
+    if (vigA > 0.01) { ctx.globalAlpha = vigA; ctx.drawImage(vignetteCanvas, 0, 0); ctx.globalAlpha = 1; }
 
     // low hp warning
     if (pl && num(pl.maxHp, 0) > 0 && pl.hp / pl.maxHp < 0.3 && pl.hp > 0) {
@@ -1008,6 +1138,9 @@ export function createRenderer(canvas) {
 
   resize();
   if (typeof window !== 'undefined') window.addEventListener('resize', resize);
-  const stats = () => ({ quality, dpr, backing: canvas.width + 'x' + canvas.height, frameMs: Math.round(ftAvg * 10000) / 10 });
-  return { resize, render, handleEvents, screenToWorld, stats };
+  const stats = () => ({ quality, dpr, backing: canvas.width + 'x' + canvas.height, frameMs: Math.round(ftAvg * 10000) / 10,
+    shock: { shudder: Math.round(shud * 10) / 10, shake: Math.round(shake * 10) / 10, offset: Math.round(camOff * 10) / 10, zoom: Math.round(camZoom * 1000) / 1000, waves: waves.filter((s) => s.life > 0).length } });
+  // Debug hook (not wired to main.js): fire a shock at world x, y with the player's element colour.
+  const debugShock = (x, y, power, kind) => shock(x, y, power, col(lastPlayer.element), { kind });
+  return { resize, render, handleEvents, screenToWorld, stats, debugShock };
 }

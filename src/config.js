@@ -33,6 +33,16 @@ export const PLAYER = {
   blowPerDamage: 0.1, // Blow meter per point of damage dealt (normalised by wave HP scale)
   blowPerKill: 2,
   startElement: 'fire',
+  // dash "boost": a press up to this long before the cooldown ends still fires
+  dashBuffer: 0.15,
+  dashDamage: 6, // element-coloured nick dealt to every enemy phased through (once per enemy per dash)
+  dashKnock: 220,
+  perfectDodgeBlow: 8, // meter for a bolt or charge that would have hit during dash i-frames
+  // surge: holding the meter full buys move speed now and a bigger nova later
+  surgeSpeed: 0.06, // +6% move speed while the meter is at 100
+  surgeCapTime: 15, // seconds at 100 for the full nova bonus (ULT.surgeBonus), +10% per 5 s
+  novaRush: 1.5, // seconds of faster blow cooldowns after a nova
+  novaRushCd: 0.15, // +15% cooldown speed during novaRush
 };
 
 // The four basic blows. Cooldowns in seconds.
@@ -53,6 +63,9 @@ export const ULT = {
   burnTime: 3.5,
   slowTime: 3,
   stun: 1.4,
+  surgeBonus: 0.3, // max damage bonus from holding the meter full (see PLAYER.surgeCapTime)
+  fireSpread: 60, // a fire nova's burn jumps to enemies this close to a burning victim
+  scatter: 0.6, // seconds nearby survivors flee after a nova or a 3-kill burst
 };
 
 // Enemy archetypes. hp/speed/dmg are wave-1 values, scaled per wave in sim.js.
@@ -62,21 +75,31 @@ export const ENEMIES = {
   grunt: {
     r: 16, hp: 40, speed: 100, dmg: 10, score: 10, cost: 1, mass: 1, kb: 1, stun: 1, slow: 0.5,
     spawnTime: 0.7, contactCd: 0.8, healDrop: 0.06, blowDrop: 0.05,
+    // short lunge when close: telegraphed, then a speed burst; never before lungeFromWave
+    lungeRange: 90, lungeWindup: 0.25, lungeTime: 0.3, lungeSpeed: 2.6, lungeCd: 3, lungeFromWave: 2,
   },
   swarm: {
     r: 9, hp: 12, speed: 170, dmg: 5, score: 4, cost: 0.4, mass: 0.35, kb: 1.4, stun: 1, slow: 0.5,
     spawnTime: 0.6, contactCd: 0.7, healDrop: 0.02, blowDrop: 0.03,
+    // pack flocking: once the pack gets this close it orbits the player for orbitMin..orbitMax s, then dives
+    orbitR: 170, orbitEnter: 300, orbitMin: 0.8, orbitMax: 1.4, diveTime: 2.2,
   },
   spitter: {
     r: 15, hp: 32, speed: 88, dmg: 6, score: 15, cost: 1.6, mass: 0.9, kb: 1.1, stun: 1, slow: 0.5,
     spawnTime: 0.7, contactCd: 0.8, healDrop: 0.07, blowDrop: 0.06,
     boltDmg: 9, boltSpeed: 300, boltR: 7, fireEvery: 2.4, windup: 0.6, keepMin: 260, keepMax: 430,
     spreadFromWave: 9, // from this wave on spitters fire a 3-bolt fan
+    lead: 110, // max px the shot is aimed ahead of a moving player (keeps it dodgeable); 25% on wave 3, full from wave 8
+    spacing: 160, // spitters push away from each other inside this distance
   },
   brute: {
     r: 28, hp: 170, speed: 55, dmg: 20, score: 40, cost: 4, mass: 4, kb: 0.3, stun: 0.6, slow: 0.65,
     spawnTime: 0.9, contactCd: 1.0, healDrop: 0.25, blowDrop: 0.2,
     chargeSpeed: 580, chargeTime: 0.6, windup: 0.95, chargeRange: 430, chargeCd: 3.4, recover: 0.8,
+    lead: 120, // max px the charge is aimed ahead of a moving player
+    recoverMiss: 1.2, recoverHit: 0.7, // recover time multiplier after a missed / landed charge
+    // shield stance: when the player holds the counter element at range, face them and halve frontal damage
+    guardTime: 1.2, guardCd: 6, guardRange: 200, guardWalk: 0.4,
   },
   boss: {
     r: 58, hp: 2400, speed: 60, dmg: 22, score: 500, cost: 0, mass: 30, kb: 0.08, stun: 0.25, slow: 0.8,

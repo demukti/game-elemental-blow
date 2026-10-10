@@ -8,6 +8,7 @@ import { createRenderer } from './render.js';
 import { createUI } from './ui.js';
 import { audio } from './audio.js';
 import { createInput } from './input.js';
+import { botInput } from './bot.js';
 
 const STEP = 1 / 60;
 const MAX_FRAME = 0.1; // clamp long frame gaps (tab switches, breakpoints) to at most 6 sim steps
@@ -17,6 +18,7 @@ const SCORES_KEY = 'elemental-blow-scores';
 const NAME_KEY = 'elemental-blow-name';
 const MAX_SCORES = 10;
 const MAX_NAME = 12;
+const BOT_RESTART_MS = 2000; // autoplay: delay before a new run after game over
 
 // ---------------------------------------------------------------------------
 // Storage (localStorage may be unavailable: private mode, file://, sandboxed iframes)
@@ -136,6 +138,21 @@ function seedFromUrl() {
   return undefined;
 }
 
+// Autoplay for playtesting: `?bot=1` (smart bot) or `?bot=simple`. The bot replaces the sampled
+// input every step, starts from the menu, takes the first upgrade and restarts after game over.
+// Its runs are not written to the best / high-score storage.
+function botFromUrl() {
+  try {
+    const b = new URLSearchParams(window.location.search).get('bot');
+    if (b === null || b === '' || b === '0' || b === 'false' || b === 'off') return null;
+    return b === 'simple' ? 'simple' : 'smart';
+  } catch {
+    return null;
+  }
+}
+const botMode = botFromUrl();
+let botRestart = 0; // pending restart timer id
+
 function resetClock() {
   acc = 0;
   last = performance.now();
@@ -186,6 +203,7 @@ function enterUpgrade() {
   app = 'upgrade';
   input.setActive(false);
   safe('ui.showUpgrade', () => ui.showUpgrade(state.upgradeChoices));
+  if (botMode) safe('bot.pickUpgrade', () => pickUpgrade(state.upgradeChoices[0].id));
 }
 
 function pickUpgrade(id) {
@@ -202,6 +220,22 @@ function pickUpgrade(id) {
 function enterGameOver() {
   app = 'gameover';
   input.setActive(false);
+  if (botMode) {
+    // bot runs are not records: show the screen, then start over
+    pendingScore = null;
+    safe('audio.stopMusic', () => audio.stopMusic());
+    safe('ui.showGameOver', () =>
+      ui.showGameOver({
+        score: state.score, wave: state.wave, kills: state.kills, best: loadBest(), isNewBest: false,
+        scores: loadScores(), rank: -1, lastName: '',
+      }),
+    );
+    clearTimeout(botRestart);
+    botRestart = setTimeout(() => {
+      if (app === 'gameover' && botMode) startGame();
+    }, BOT_RESTART_MS);
+    return;
+  }
   const prev = loadBest();
   const isNewBest = state.score > 0 && (!prev || state.score > prev.score);
   const best = {
@@ -371,7 +405,9 @@ function frame(now) {
   if (app === 'playing' && state) {
     acc += dt;
     while (acc >= STEP) {
-      update(state, input.sample(state), STEP);
+      const sampled = input.sample(state);
+      const inp = botMode ? safe('bot.input', () => botInput(state, { smart: botMode !== 'simple' })) || sampled : sampled;
+      update(state, inp, STEP);
       for (const ev of state.events) events.push(ev);
       acc -= STEP;
       if (state.phase !== 'playing') {
@@ -406,6 +442,10 @@ window.elementalBlow = {
   get render() {
     return renderer.stats();
   },
+  // true while the `?bot=` autoplay mode drives the input.
+  get bot() {
+    return !!botMode;
+  },
 };
 
 onResize();
@@ -413,3 +453,4 @@ setMuted(muted);
 safe('ui.showMenu', () => ui.showMenu(loadBest(), loadScores()));
 resetClock();
 requestAnimationFrame(frame);
+if (botMode) safe('bot.start', () => startGame());

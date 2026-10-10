@@ -14,6 +14,8 @@ Then open http://localhost:5180/. Set `PORT=8080 npm start` to use another port.
 
 Add `?seed=123` to the URL for a reproducible run (same seed and same inputs give the same game).
 
+Add `?bot=1` (or `?bot=simple` for the plain bot) to let the test bot play: it starts from the menu, takes the first upgrade and restarts after game over; its runs are not saved to the high-score board.
+
 ## Test
 
 ```
@@ -51,7 +53,7 @@ Menus: Enter or Space starts, Enter resumes, R or Enter restarts after game over
 
 **Blow meter.** Dealing damage and getting kills fills the meter. At 100, Space unleashes a nova that damages, burns, slows and stuns everything nearby and gives brief invulnerability.
 
-**Enemies.** Grunts, swarms (small and fast), spitters (keep distance and shoot bolts, a 3-bolt fan from wave 9) and brutes (slow, heavy, telegraph then charge).
+**Enemies.** Grunts (flank in groups and lunge when close, from wave 2), swarms (small and fast; a pack circles you, then dives together), spitters (keep distance, flank your aim and lead their bolts; a 3-bolt fan from wave 9) and brutes (slow, heavy, telegraph then charge where you are heading; they raise a shield when you hold their counter at range). Survivors scatter for a moment after a nova or a quick 3-kill burst.
 
 **Boss.** Every 5th wave: a big enemy that fires bolt bursts and spirals, summons minions and charges. It changes element at 66% and 33% HP, and later bosses are tougher.
 
@@ -66,6 +68,7 @@ src/config.js           all constants and tuning tables
 src/sim.js              game rules: pure, deterministic, no DOM or audio
 src/main.js             app loop, pause/mute, ?seed=, localStorage
 src/input.js            keyboard and mouse -> per-step input object
+src/bot.js              autoplay bot (tests and the ?bot=1 playtest mode)
 src/render.js           canvas drawing, particles, shake
 src/ui.js               menus, HUD, upgrade screen
 src/audio.js            WebAudio sound and music

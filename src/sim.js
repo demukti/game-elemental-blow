@@ -145,10 +145,16 @@ function makePlayer() {
     blow: 0,
     hitFlash: 0,
     upgrades: [],
+    blowSurge: 0, // extra: 0..1, how long the meter has been held full (nova damage bonus, see PLAYER.surgeCapTime)
+    novaRush: 0, // extra: seconds of faster blow cooldowns left after a nova
     _kx: 0,
     _ky: 0,
     _dashX: 1,
     _dashY: 0,
+    _surgeT: 0,
+    _dashBuf: 0, // buffered dash press (seconds left)
+    _dashHit: [], // enemy ids already nicked by the current dash
+    _stillT: 0, // seconds the player has been standing still
   };
 }
 
@@ -186,6 +192,9 @@ export function createGame(seed) {
     _comboDecay: 0,
     _waveHp: 1,
     _pack: 0,
+    _packs: {}, // swarm pack id -> { mode: 'approach' | 'orbit' | 'dive', t, side }
+    _killBurstT: 0,
+    _killBurstN: 0,
   };
   setupWave(state, 1, WAVE.firstCountdown);
   return state;
@@ -320,7 +329,7 @@ function spawnFromQueue(state) {
         const en = state._queue.shift();
         const a = random(state) * TAU;
         const d = rr(state, 8, 46);
-        spawnEnemy(state, en.type, en.element, pt.x + Math.cos(a) * d, pt.y + Math.sin(a) * d);
+        spawnEnemy(state, en.type, en.element, pt.x + Math.cos(a) * d, pt.y + Math.sin(a) * d, { pack: en.pack });
       }
     } else {
       state._queue.shift();
@@ -412,6 +421,8 @@ export function spawnEnemy(state, type, element, x, y, opts = {}) {
     telegraphKind: null, // extra: 'charge' | 'shoot' | 'burst' | 'summon' while winding up
     windup: 0, // extra: wind-up progress for every kind (telegraph is only set for directional ones)
     spawnT: opts.instant ? 0 : 1,
+    pack: opts.pack || 0, // extra: swarm pack id (0 = none); packmates flock and commit together
+    guard: 0, // extra: 0..1 brute shield stance (frontal damage halved while > 0)
     _spawnDur: def.spawnTime,
     _speed: def.speed * sc.speed,
     _dmg: def.dmg * dmgScale,
@@ -439,6 +450,11 @@ export function spawnEnemy(state, type, element, x, y, opts = {}) {
     _spiralA: 0,
     _spiralCd: 0,
     _lastPattern: null,
+    _fleeT: 0, // scatter timer: 'move'-state enemies back off while > 0
+    _flank: rr(state, -0.6, 0.6), // grunt approach angle offset (radians) so groups envelop
+    _lungeCd: rr(state, 1.5, 3.5),
+    _guardCd: rr(state, 2, 5),
+    _chargeHit: false, // brute: did the current charge connect?
   };
   state.enemies.push(e);
   if (type === 'boss') emit(state, { type: 'bossSpawn', x: e.x, y: e.y, element: e.element });
@@ -510,6 +526,34 @@ function addBlow(state, amount) {
   if (before < 100 && p.blow >= 100) emit(state, { type: 'blowReady' });
 }
 
+function perfectDodge(state, x, y) {
+  addBlow(state, PLAYER.perfectDodgeBlow);
+  emit(state, { type: 'perfectDodge', x, y });
+}
+
+/** Nearby non-boss enemies that are not mid-attack break off for a moment. */
+function scatter(state, x, y, r, time) {
+  for (const e of state.enemies) {
+    if (e._dead || e.type === 'boss') continue;
+    const rs = r + e.r;
+    if (dist2(x, y, e.x, e.y) < rs * rs) e._fleeT = Math.max(e._fleeT, time);
+  }
+}
+
+/** Aim angle from e to the player, leading by the player's velocity over the flight time (lead clamped). */
+function leadAngle(e, p, speed, maxLead) {
+  const d = Math.hypot(p.x - e.x, p.y - e.y);
+  const t = d / (speed || 1);
+  let lx = p.vx * t;
+  let ly = p.vy * t;
+  const ll = Math.hypot(lx, ly);
+  if (ll > maxLead) {
+    lx *= maxLead / ll;
+    ly *= maxLead / ll;
+  }
+  return Math.atan2(p.y + ly - e.y, p.x + lx - e.x);
+}
+
 function knock(e, dx, dy, amount) {
   const d = Math.hypot(dx, dy);
   if (d < 1e-6) return;
@@ -528,13 +572,26 @@ function applyBurn(state, e, time, dps) {
 function hurtEnemy(state, e, base, element, opts) {
   if (e._dead || !(base > 0)) return 0;
   const mult = elementMultiplier(element, e.element);
-  const dmg = base * mult * state._mods.dmg[element];
+  let dmg = base * mult * state._mods.dmg[element];
+  let guarded = false;
+  if (e.guard > 0 && !(opts && opts.dot)) {
+    // shield stance: hits from the front are halved (every direct player attack comes from the player)
+    const p = state.player;
+    const tx = p.x - e.x;
+    const ty = p.y - e.y;
+    const tl = Math.hypot(tx, ty) || 1;
+    if ((Math.cos(e.angle) * tx + Math.sin(e.angle) * ty) / tl > 0.2) {
+      dmg *= 1 - 0.5 * clamp(e.guard, 0, 1);
+      guarded = true;
+    }
+  }
   e.hp -= dmg;
   e.hitFlash = 0.12;
   e._lastMult = mult;
   state.stats.damageDealt += dmg;
   const ev = { type: 'hit', x: e.x, y: e.y, element, dmg: Math.max(1, Math.round(dmg)), mult, enemyId: e.id };
   if (opts && opts.dot) ev.dot = true;
+  if (guarded) ev.guarded = true;
   emit(state, ev);
   if (!(opts && opts.noCharge)) {
     // normalised by the wave's HP scaling so the meter fills at a similar pace on every wave
@@ -561,6 +618,14 @@ function killEnemy(state, e) {
   state.comboTimer = 1;
   state.combo = comboValue(state._comboKills);
   if (state.combo > state.stats.bestCombo) state.stats.bestCombo = state.combo;
+
+  // 3 kills inside a second: the survivors around the player scatter for a moment
+  if (state.time - state._killBurstT > 1) {
+    state._killBurstT = state.time;
+    state._killBurstN = 0;
+  }
+  state._killBurstN++;
+  if (state._killBurstN === 3) scatter(state, p.x, p.y, 300, ULT.scatter);
 
   const score = Math.round(
     def.score * (1 + 0.1 * (state.wave - 1)) * state.combo * (sup ? COMBO.superBonus : 1) * (e._minion ? 0.5 : 1),
@@ -651,6 +716,14 @@ function updatePlayer(state, inp, dt) {
   p.invuln = Math.max(0, p.invuln - dt);
   p.hitFlash = Math.max(0, p.hitFlash - dt);
   p.dashCd = Math.max(0, p.dashCd - dt);
+  p.novaRush = Math.max(0, p.novaRush - dt);
+  p._dashBuf = Math.max(0, p._dashBuf - dt);
+  if (inp.dash) p._dashBuf = PLAYER.dashBuffer;
+
+  // surge: the meter has no decay, so holding it full is rewarded (speed now, a bigger nova later)
+  if (p.blow >= 100) p._surgeT = Math.min(PLAYER.surgeCapTime, p._surgeT + dt);
+  else p._surgeT = 0;
+  p.blowSurge = clamp(p._surgeT / PLAYER.surgeCapTime, 0, 1);
 
   // element
   if (inp.switchTo) setElement(state, inp.switchTo);
@@ -673,7 +746,9 @@ function updatePlayer(state, inp, dt) {
     my /= ml;
   }
 
-  if (inp.dash && p.dashCd <= 0 && p.dashing <= 0) {
+  if (p._dashBuf > 0 && p.dashCd <= 0 && p.dashing <= 0) {
+    p._dashBuf = 0;
+    p._dashHit.length = 0;
     let dx = mx;
     let dy = my;
     if (Math.hypot(dx, dy) < 0.1) {
@@ -699,7 +774,7 @@ function updatePlayer(state, inp, dt) {
       p.vy *= 0.3;
     }
   } else {
-    const sp = PLAYER.speed * m.speed;
+    const sp = PLAYER.speed * m.speed * (p.blow >= 100 ? 1 + PLAYER.surgeSpeed : 1);
     const k = Math.min(1, PLAYER.accel * dt);
     p.vx += (mx * sp - p.vx) * k;
     p.vy += (my * sp - p.vy) * k;
@@ -709,10 +784,12 @@ function updatePlayer(state, inp, dt) {
   p._ky *= kd;
   p.x = clamp(p.x + (p.vx + p._kx) * dt, p.r, W - p.r);
   p.y = clamp(p.y + (p.vy + p._ky) * dt, p.r, H - p.r);
+  p._stillT = Math.hypot(p.vx, p.vy) > 20 ? 0 : Math.min(10, p._stillT + dt);
 
-  // cooldowns (stored as 0..1 fraction remaining)
+  // cooldowns (stored as 0..1 fraction remaining); a fresh nova speeds them up briefly
+  const cdRate = p.novaRush > 0 ? 1 + PLAYER.novaRushCd : 1;
   for (const el of ELEMENTS) {
-    if (p.cooldowns[el] > 0) p.cooldowns[el] = Math.max(0, p.cooldowns[el] - dt / blowCooldown(state, el));
+    if (p.cooldowns[el] > 0) p.cooldowns[el] = Math.max(0, p.cooldowns[el] - (dt * cdRate) / blowCooldown(state, el));
   }
 
   if (inp.fire && p.cooldowns[p.element] <= 0) castBlow(state, p.element);
@@ -783,22 +860,43 @@ function castNova(state) {
   const p = state.player;
   const el = p.element;
   const R = ULT.radius;
+  const surge = p.blowSurge;
   p.blow = 0;
+  p._surgeT = 0;
+  p.blowSurge = 0;
+  p.novaRush = PLAYER.novaRush;
   p.invuln = Math.max(p.invuln, ULT.invuln);
   state.stats.blowsUsed++;
   addEffect(state, 'nova', el, p.x, p.y, R, 0.6);
   emit(state, { type: 'blow', x: p.x, y: p.y, r: R, element: el });
-  const dmg = ULT.damage * (1 + ULT.perWave * (state.wave - 1));
+  const dmg = ULT.damage * (1 + ULT.perWave * (state.wave - 1)) * (1 + ULT.surgeBonus * surge);
+  const burnTime = ULT.burnTime * state._mods.burn;
+  const victims = [];
   for (const e of state.enemies) {
     if (e._dead) continue;
     const rr2 = R + e.r;
     if (dist2(p.x, p.y, e.x, e.y) > rr2 * rr2) continue;
     knock(e, e.x - p.x, e.y - p.y, ULT.knockback * (el === 'air' ? 1.6 : 1));
-    if (el === 'fire') applyBurn(state, e, ULT.burnTime * state._mods.burn, BLOWS.fire.burnDps * 1.5);
+    if (el === 'fire') applyBurn(state, e, burnTime, BLOWS.fire.burnDps * 1.5);
     else if (el === 'water') e.slow = Math.max(e.slow, ULT.slowTime);
     else if (el === 'earth') e.stun = Math.max(e.stun, ULT.stun * ENEMIES[e.type].stun);
     hurtEnemy(state, e, dmg, el, { noCharge: true });
+    if (!e._dead) victims.push(e);
   }
+  if (el === 'fire') {
+    // the blaze jumps to anything standing right next to a burning victim
+    for (const o of state.enemies) {
+      if (o._dead || o.burn > 0) continue;
+      for (const v of victims) {
+        const rs = ULT.fireSpread + o.r + v.r;
+        if (dist2(o.x, o.y, v.x, v.y) < rs * rs) {
+          applyBurn(state, o, burnTime, BLOWS.fire.burnDps);
+          break;
+        }
+      }
+    }
+  }
+  scatter(state, p.x, p.y, R + 160, ULT.scatter);
   for (const pr of state.projectiles) {
     if (pr.owner === 'enemy' && dist2(p.x, p.y, pr.x, pr.y) < R * R) pr._dead = true;
   }
@@ -807,34 +905,153 @@ function castNova(state) {
 // ---------------------------------------------------------------------------
 // Enemy AI
 // ---------------------------------------------------------------------------
-function aiGrunt(state, e, dt, sm, ux, uy) {
-  const w = Math.sin(state.time * 1.3 + e._wob) * 0.25;
+function aiGrunt(state, e, dt, sm, ux, uy, d) {
+  const def = ENEMIES.grunt;
   const sp = e._speed * sm;
-  e._mx = (ux - uy * w) * sp;
-  e._my = (uy + ux * w) * sp;
+  if (e._ai === 'lungeWind') {
+    e._aiT -= dt;
+    setWindup(e, 'lunge', 1 - e._aiT / def.lungeWindup);
+    e._mx = ux * sp * 0.3;
+    e._my = uy * sp * 0.3;
+    e.angle = Math.atan2(uy, ux);
+    if (e._aiT <= 0) {
+      e._ai = 'lunge';
+      e._aiT = def.lungeTime;
+      e._dirX = ux;
+      e._dirY = uy;
+      clearWindup(e);
+    }
+    return;
+  }
+  if (e._ai === 'lunge') {
+    e._aiT -= dt;
+    e._mx = e._dirX * sp * def.lungeSpeed;
+    e._my = e._dirY * sp * def.lungeSpeed;
+    if (e._aiT <= 0) {
+      e._ai = 'move';
+      e._lungeCd = def.lungeCd * rr(state, 0.8, 1.3);
+    }
+    return;
+  }
+  e._lungeCd -= dt;
+  // flank: approach from a per-grunt offset angle that closes as it gets near, so a group envelops
+  // instead of forming one line; plus a light wobble
+  const fl = e._flank * clamp((d - 70) / 260, 0, 1) + Math.sin(state.time * 1.3 + e._wob) * 0.2;
+  const c = Math.cos(fl);
+  const s = Math.sin(fl);
+  e._mx = (ux * c - uy * s) * sp;
+  e._my = (ux * s + uy * c) * sp;
   e.angle = Math.atan2(uy, ux);
+  if (e._lungeCd <= 0 && state.wave >= def.lungeFromWave && d < def.lungeRange + e.r) {
+    e._ai = 'lungeWind';
+    e._aiT = def.lungeWindup;
+    setWindup(e, 'lunge', 0);
+  }
 }
 
 function aiSwarm(state, e, dt, sm, ux, uy, d) {
-  const w = Math.sin(state.time * 5 + e._wob) * 0.7 * clamp(d / 220, 0, 1);
-  const c = Math.cos(w);
-  const s = Math.sin(w);
-  const dx = ux * c - uy * s;
-  const dy = ux * s + uy * c;
+  const def = ENEMIES.swarm;
   const sp = e._speed * sm;
-  e._mx = dx * sp;
-  e._my = dy * sp;
+  const pk = e.pack ? SCRATCH.packs[e.pack] : null;
+  const ps = e.pack ? state._packs[e.pack] : null;
+  let dx;
+  let dy;
+  if (ps && ps.mode === 'orbit') {
+    // circle the player at mid range until the whole pack commits
+    dx = -uy * ps.side;
+    dy = ux * ps.side;
+    const radial = d > def.orbitR + 40 ? 0.9 : d < def.orbitR - 40 ? -0.9 : 0;
+    dx += ux * radial;
+    dy += uy * radial;
+  } else {
+    const w = Math.sin(state.time * 5 + e._wob) * 0.7 * clamp(d / 220, 0, 1);
+    const c = Math.cos(w);
+    const s = Math.sin(w);
+    dx = ux * c - uy * s;
+    dy = ux * s + uy * c;
+  }
+  if (pk && pk.n > 1) {
+    // cohesion toward the pack centroid + alignment with the pack's heading: they move as a cloud
+    const cx = pk.x / pk.n - e.x;
+    const cy = pk.y / pk.n - e.y;
+    const cd = Math.hypot(cx, cy) || 1;
+    const coh = clamp((cd - 20) / 120, 0, 0.6);
+    dx += (cx / cd) * coh;
+    dy += (cy / cd) * coh;
+    const al = Math.hypot(pk.vx, pk.vy) || 1;
+    dx += (pk.vx / al) * 0.3;
+    dy += (pk.vy / al) * 0.3;
+  }
+  const l = Math.hypot(dx, dy) || 1;
+  e._mx = (dx / l) * sp;
+  e._my = (dy / l) * sp;
   e.angle = Math.atan2(dy, dx);
+}
+
+/**
+ * Per-step scratch for updateEnemies (rebuilt from scratch every step, so it carries no state
+ * across steps and keeps the sim deterministic): swarm pack centroids and whether a brute is
+ * in its recover window.
+ */
+const SCRATCH = { packs: {}, bruteRecover: false };
+
+function prepareEnemies(state, dt) {
+  const def = ENEMIES.swarm;
+  const p = state.player;
+  const packs = {};
+  let bruteRecover = false;
+  for (const e of state.enemies) {
+    if (e._dead) continue;
+    if (e.type === 'brute' && e._ai === 'recover') bruteRecover = true;
+    if (!e.pack || e.spawnT > 0) continue;
+    let pk = packs[e.pack];
+    if (!pk) pk = packs[e.pack] = { n: 0, x: 0, y: 0, vx: 0, vy: 0, dmin: Infinity };
+    pk.n++;
+    pk.x += e.x;
+    pk.y += e.y;
+    pk.vx += e._mx;
+    pk.vy += e._my;
+    const dd = dist2(e.x, e.y, p.x, p.y);
+    if (dd < pk.dmin) pk.dmin = dd;
+  }
+  SCRATCH.packs = packs;
+  SCRATCH.bruteRecover = bruteRecover;
+  // pack commit timers: approach -> orbit (orbitMin..orbitMax s) -> dive (diveTime) -> orbit ...
+  const st = state._packs;
+  for (const id in st) if (!packs[id]) delete st[id];
+  for (const id in packs) {
+    let ps = st[id];
+    if (!ps) ps = st[id] = { mode: 'approach', t: 0, side: Number(id) % 2 ? 1 : -1 };
+    if (ps.mode === 'approach') {
+      if (packs[id].dmin < def.orbitEnter * def.orbitEnter) {
+        ps.mode = 'orbit';
+        ps.t = rr(state, def.orbitMin, def.orbitMax);
+      }
+      continue;
+    }
+    ps.t -= dt;
+    if (ps.t <= 0) {
+      if (ps.mode === 'orbit') {
+        ps.mode = 'dive';
+        ps.t = def.diveTime;
+      } else {
+        ps.mode = 'orbit';
+        ps.t = rr(state, def.orbitMin, def.orbitMax);
+      }
+    }
+  }
 }
 
 function aiSpitter(state, e, dt, sm, ux, uy, d) {
   const def = ENEMIES.spitter;
-  e.angle = Math.atan2(uy, ux);
+  const p = state.player;
   if (e._ai === 'windup') {
     e._aiT -= dt;
     setWindup(e, 'shoot', 1 - e._aiT / def.windup);
     e._mx = 0;
     e._my = 0;
+    // predictive aim: lead a moving player (clamped so it stays dodgeable); the cue shows the real line
+    e.angle = leadAngle(e, p, def.boltSpeed, def.lead * clamp(0.25 + 0.15 * (state.wave - 3), 0.25, 1));
     if (e._aiT <= 0) {
       const fan = state.wave >= def.spreadFromWave ? 3 : 1;
       let fired = false;
@@ -848,18 +1065,44 @@ function aiSpitter(state, e, dt, sm, ux, uy, d) {
     }
     return;
   }
-  e._fireT -= dt;
+  e.angle = Math.atan2(uy, ux);
+  // fire sooner at a sitting duck: a player standing still or busy punishing a recovering brute
+  e._fireT -= dt * (p._stillT > 1 || SCRATCH.bruteRecover ? 1.8 : 1);
   let tx = 0;
   let ty = 0;
+  let spMul = 1;
   if (d < def.keepMin) {
     tx = -ux;
     ty = -uy;
+    // back off faster when the player holds the counter element and is closing in
+    if (p.element === counterOf(e.element) && p.vx * ux + p.vy * uy < -40) spMul = 1.35;
   } else if (d > def.keepMax) {
     tx = ux;
     ty = uy;
   }
-  tx += -uy * e._strafe * 0.7;
-  ty += ux * e._strafe * 0.7;
+  // flank: drift out of the player's facing cone (toward whichever side gets out of it faster)
+  const fx = Math.cos(p.angle);
+  const fy = Math.sin(p.angle);
+  let strafe = e._strafe;
+  let sw = 0.7;
+  if (-(fx * ux + fy * uy) > 0.75) {
+    const side = -uy * fx + ux * fy;
+    if (Math.abs(side) > 1e-3) strafe = side > 0 ? -1 : 1;
+    sw = 0.95;
+  }
+  tx += -uy * strafe * sw;
+  ty += ux * strafe * sw;
+  // spread out from other spitters so they cannot be hit as one clump
+  for (const o of state.enemies) {
+    if (o === e || o._dead || o.type !== 'spitter') continue;
+    const sx = e.x - o.x;
+    const sy = e.y - o.y;
+    const sd = Math.hypot(sx, sy);
+    if (sd < def.spacing && sd > 1e-6) {
+      tx += (sx / sd) * (1 - sd / def.spacing) * 1.2;
+      ty += (sy / sd) * (1 - sd / def.spacing) * 1.2;
+    }
+  }
   // stay off the walls so it does not get pinned in a corner
   const mg = 70;
   if (e.x < mg) tx += 1;
@@ -868,7 +1111,7 @@ function aiSpitter(state, e, dt, sm, ux, uy, d) {
   else if (e.y > H - mg) ty -= 1;
   if (random(state) < dt * 0.25) e._strafe *= -1;
   const l = Math.hypot(tx, ty) || 1;
-  const sp = e._speed * sm;
+  const sp = e._speed * sm * spMul;
   e._mx = (tx / l) * sp;
   e._my = (ty / l) * sp;
   if (e._fireT <= 0 && d < 760) {
@@ -886,15 +1129,18 @@ function aiBrute(state, e, dt, sm, ux, uy, d) {
       const prog = clamp(1 - e._aiT / def.windup, 0, 1);
       setWindup(e, 'charge', prog);
       if (prog < 0.7) {
-        e._dirX = ux;
-        e._dirY = uy;
-        e.angle = Math.atan2(uy, ux);
+        // aim at where the player is heading, but commit for the last 30% so it can be dodged
+        const a = leadAngle(e, state.player, def.chargeSpeed, def.lead);
+        e._dirX = Math.cos(a);
+        e._dirY = Math.sin(a);
+        e.angle = a;
       }
       e._mx = 0;
       e._my = 0;
       if (e._aiT <= 0) {
         e._ai = 'charge';
         e._aiT = def.chargeTime;
+        e._chargeHit = false;
         clearWindup(e);
       }
       return;
@@ -905,8 +1151,24 @@ function aiBrute(state, e, dt, sm, ux, uy, d) {
       e._mx = e._dirX * sp;
       e._my = e._dirY * sp;
       if (e._aiT <= 0) {
+        // a miss leaves it open longer (punish window); a hit lets it turn around sooner
         e._ai = 'recover';
-        e._aiT = def.recover;
+        e._aiT = def.recover * (e._chargeHit ? def.recoverHit : def.recoverMiss);
+      }
+      return;
+    }
+    case 'guard': {
+      // shield stance: face the player and plod forward; hurtEnemy halves frontal hits while guard > 0
+      e._aiT -= dt;
+      e.guard = clamp(e._aiT / 0.25, 0, 1);
+      e.angle = Math.atan2(uy, ux);
+      const sp = e._speed * sm * def.guardWalk;
+      e._mx = ux * sp;
+      e._my = uy * sp;
+      if (e._aiT <= 0) {
+        e._ai = 'move';
+        e.guard = 0;
+        e._guardCd = def.guardCd * rr(state, 0.8, 1.4);
       }
       return;
     }
@@ -922,6 +1184,7 @@ function aiBrute(state, e, dt, sm, ux, uy, d) {
     }
     default: {
       e._chargeCd -= dt;
+      e._guardCd -= dt;
       const sp = e._speed * sm;
       e._mx = ux * sp;
       e._my = uy * sp;
@@ -935,13 +1198,18 @@ function aiBrute(state, e, dt, sm, ux, uy, d) {
         addEffect(state, 'telegraph', e.element, e.x, e.y, e.r + 14, def.windup, {
           angle: e.angle, len: def.chargeSpeed * def.chargeTime, _follow: e.id, _forAi: 'windup',
         });
+      } else if (e._guardCd <= 0 && d > def.guardRange && state.player.element === counterOf(e.element)) {
+        // the player holds its counter and keeps range: raise the shield and walk it in
+        e._ai = 'guard';
+        e._aiT = def.guardTime;
+        e.guard = 1;
       }
     }
   }
 }
 
 // Wind-up bookkeeping. The contracted 'telegraph' field drives the renderer's charge lane /
-// aim cue, so it only carries directional wind-ups (charge, shot). Area wind-ups (boss burst /
+// aim cue, so it only carries directional wind-ups (charge, shot, lunge). Area wind-ups (boss burst /
 // summon) are shown by 'telegraph' effects instead; 'windup' + 'telegraphKind' carry all of them.
 function setWindup(e, kind, prog) {
   const p = clamp(prog, 0, 1);
@@ -1166,11 +1434,13 @@ const AI = { grunt: aiGrunt, swarm: aiSwarm, spitter: aiSpitter, brute: aiBrute,
 function updateEnemies(state, dt) {
   const p = state.player;
   const kd = Math.exp(-7 * dt);
+  prepareEnemies(state, dt);
   for (const e of state.enemies) {
     if (e._dead) continue;
     const def = ENEMIES[e.type];
     if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt);
     if (e._atkCd > 0) e._atkCd -= dt;
+    if (e._fleeT > 0) e._fleeT = Math.max(0, e._fleeT - dt);
 
     if (e.burn > 0) {
       e.burn = Math.max(0, e.burn - dt);
@@ -1214,7 +1484,20 @@ function updateEnemies(state, dt) {
         e._ai = 'recover';
         e._aiT = 0.3;
         clearWindup(e);
+      } else if (e._ai === 'lungeWind' || e._ai === 'lunge' || e._ai === 'guard') {
+        e._ai = 'move';
+        e.guard = 0;
+        clearWindup(e);
       }
+    } else if (e._fleeT > 0 && e._ai === 'move' && e.type !== 'boss') {
+      // scatter (after a nova or a kill burst): back off at a slant, then the regular AI resumes
+      const sm = e.slow > 0 ? def.slow : 1;
+      const side = e._strafe * 0.5;
+      const l = Math.hypot(1, side);
+      const sp = (e._speed * sm * 1.15) / l;
+      e._mx = (-ux - uy * side) * sp;
+      e._my = (-uy + ux * side) * sp;
+      e.angle = Math.atan2(uy, ux);
     } else {
       AI[e.type](state, e, dt, e.slow > 0 ? def.slow : 1, ux, uy, d);
     }
@@ -1231,6 +1514,19 @@ function updateEnemies(state, dt) {
       e._aiT = (e.type === 'boss' ? BOSS.chargeRecover : def.recover) + 0.35;
     }
 
+    // dash: phase through, nicking and shoving everything on the way (once per enemy per dash);
+    // passing through a charging brute/boss counts as a perfect dodge
+    if (p.dashing > 0) {
+      const rs = e.r + p.r + 4;
+      if (dist2(e.x, e.y, p.x, p.y) < rs * rs && !p._dashHit.includes(e.id)) {
+        p._dashHit.push(e.id);
+        knock(e, e.x - p.x, e.y - p.y, PLAYER.dashKnock);
+        if (e._ai === 'charge') perfectDodge(state, e.x, e.y);
+        hurtEnemy(state, e, PLAYER.dashDamage, p.element);
+        if (e._dead) continue;
+      }
+    }
+
     // contact damage
     if (e.stun <= 0 && e._atkCd <= 0) {
       const rs = e.r + p.r + 2;
@@ -1244,7 +1540,10 @@ function updateEnemies(state, dt) {
           dmg *= 1.3;
           kb = 720;
         }
-        if (damagePlayer(state, dmg, e.x, e.y, kb, e.element)) e._atkCd = def.contactCd;
+        if (damagePlayer(state, dmg, e.x, e.y, kb, e.element)) {
+          e._atkCd = def.contactCd;
+          if (e.type === 'brute' && e._ai === 'charge') e._chargeHit = true;
+        }
       }
     }
   }
@@ -1373,9 +1672,17 @@ function updateProjectiles(state, dt) {
         continue;
       }
       const rs = pr.r + p.r * 0.8;
-      if (dist2(pr.x, pr.y, p.x, p.y) < rs * rs && damagePlayer(state, pr._dmg, pr.x, pr.y, 140, pr.element)) {
-        pr._dead = true;
-        continue;
+      if (dist2(pr.x, pr.y, p.x, p.y) < rs * rs) {
+        if (p.dashing > 0) {
+          // perfect dodge: the bolt would have hit; it fizzles and feeds the meter instead
+          pr._dead = true;
+          perfectDodge(state, pr.x, pr.y);
+          continue;
+        }
+        if (damagePlayer(state, pr._dmg, pr.x, pr.y, 140, pr.element)) {
+          pr._dead = true;
+          continue;
+        }
       }
     } else if (pr.kind === 'fireball') {
       if (pr.x < 0 || pr.x > W || pr.y < 0 || pr.y > H) {
