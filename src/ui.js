@@ -65,6 +65,7 @@ const CONTROLS = [
   [['Shift'], 'Dash'],
   [['Space'], 'Blow (ultimate)'],
   [['P'], 'Pause'],
+  [['H'], 'Manual'],
   [['M'], 'Mute'],
   [['F'], 'Full screen'],
 ];
@@ -223,7 +224,7 @@ export function createUI(callbacks) {
     menu._best = bestEl;
     menu._board = h('section', 'panel scores');
     const row = h('div', 'menu-row');
-    row.append(muteButton());
+    row.append(button('Manual', 'ghost', 'H', () => call('onOpenManual')), muteButton());
     left.append(title, tag, play, bestEl, menu._board, row);
 
     const right = h('div', 'menu-side');
@@ -244,7 +245,7 @@ export function createUI(callbacks) {
   // UPGRADE
   const upgrade = makeOverlay('upgrade', 'upgrade');
   const upTitle = h('h2', 'ov-title', 'CHOOSE AN UPGRADE');
-  const upSub = h('p', 'ov-sub', 'Press 1, 2 or 3, or click a card');
+  const upSub = h('p', 'ov-sub', 'Press 1, 2 or 3, or click a card · H opens the manual');
   const cards = h('div', 'cards');
   const owned = h('div', 'owned');
   upgrade.append(upTitle, upSub, cards, owned);
@@ -259,6 +260,7 @@ export function createUI(callbacks) {
       button('Resume', 'primary', 'ENTER', () => call('onResume')),
       button('Restart', '', 'R', () => call('onRestart')),
       button('Quit to menu', '', 'Q', () => call('onQuitToMenu')),
+      button('Manual', '', 'H', () => call('onOpenManual')),
       muteButton()
     );
     box.appendChild(btns);
@@ -450,13 +452,18 @@ export function createUI(callbacks) {
     let handled = true;
     switch (current) {
       case 'menu':
-        if (k === 'Enter' || k === ' ') call('onStart'); else handled = false;
+        if (k === 'Enter' || k === ' ') call('onStart');
+        else if (k === 'h' || k === 'H') call('onOpenManual');
+        else handled = false;
         break;
       case 'upgrade':
-        if (k === '1' || k === '2' || k === '3') pick(Number(k) - 1); else handled = false;
+        if (k === '1' || k === '2' || k === '3') pick(Number(k) - 1);
+        else if (k === 'h' || k === 'H') call('onOpenManual');
+        else handled = false;
         break;
       case 'pause':
         if (k === 'Enter') call('onResume');
+        else if (k === 'h' || k === 'H') call('onOpenManual');
         else if (k === 'r' || k === 'R') call('onRestart');
         else if (k === 'q' || k === 'Q') call('onQuitToMenu');
         else handled = false;

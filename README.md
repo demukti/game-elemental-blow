@@ -35,10 +35,13 @@ Runs `node --test` over `test/` (simulation rules, wave progression, determinism
 | Dash (brief invulnerability) | Shift or right mouse button |
 | Blow ultimate (needs full meter) | Space |
 | Pause / resume | P or Esc |
+| Field manual (pauses a run) | H, or the Manual button on the menu and pause screens |
 | Mute | M |
 | Full screen (Esc leaves it) | F or the corner button |
 
 Menus: Enter or Space starts, Enter resumes, R or Enter restarts after game over, Esc returns to the menu.
+
+The in-game **Field Manual** (H) explains every mechanic and on-screen cue in detail: what each ring around the player means, dash and perfect dodge rules, the nova by element, enemy and Titan patterns, wave pacing, scoring and exact upgrade stacking. It is built by `src/manual.js` from the tuning tables, so its numbers follow `src/config.js`.
 
 ## How it plays
 
@@ -53,7 +56,7 @@ Menus: Enter or Space starts, Enter resumes, R or Enter restarts after game over
 
 **Dash.** Shift or right mouse button. Brief invulnerability, and you phase through enemies, dealing a little damage of your current element and shoving them aside. A bolt or a charge that would have hit you mid-dash is a perfect dodge: it fizzles and charges the Blow meter. A press just before the cooldown ends is remembered.
 
-**Blow meter.** Dealing damage and getting kills fills the meter. At 100, Space unleashes a nova that damages, burns, slows and stuns everything nearby and gives brief invulnerability. A fire nova also spreads burn to nearby enemies, an air nova throws enemies further. Holding a full meter builds a surge: a little extra move speed now and up to +30% nova damage after 15 s, so it is a choice between cashing in and holding. After a nova your blows recharge faster for a moment.
+**Blow meter.** Dealing damage and getting kills fills the meter. At 100, Space unleashes a nova that damages everything nearby, knocks it back, clears enemy bolts and gives brief invulnerability. What else it does depends on the element you hold: fire burns (and the burn spreads to neighbours), water slows, earth stuns, air throws enemies further; the element multiplier applies to its damage too. Holding a full meter builds a surge: a little extra move speed now and up to +30% nova damage after 15 s, so it is a choice between cashing in and holding. After a nova your blows recharge faster for a moment.
 
 **Enemies.** Grunts (flank in groups and lunge when close, from wave 2), swarms (small and fast; a pack circles you, then dives together), spitters (keep distance, flank your aim and lead their bolts; a 3-bolt fan from wave 9) and brutes (slow, heavy, telegraph then charge where you are heading; they raise a shield when you hold their counter at range). Survivors scatter for a moment after a nova or a quick 3-kill burst.
 
@@ -80,6 +83,7 @@ src/input.js            keyboard and mouse -> per-step input object
 src/bot.js              autoplay bot (tests and the ?bot=1 playtest mode)
 src/render.js           canvas drawing, particles, shake
 src/ui.js               menus, HUD, upgrade screen
+src/manual.js           in-game field manual (H), numbers read from config.js
 src/audio.js            WebAudio sound and music
 test/                   node:test suites
 ```

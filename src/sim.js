@@ -6,7 +6,7 @@
 //   applyUpgrade(state, upgradeId) valid in phase 'upgrade'; returns true when applied
 //   elementMultiplier(attackEl, targetEl) -> 2 | 1 | 0.5
 //
-// Extra exports (tests / tooling): spawnEnemy, counterOf, random.
+// Extra exports (tests / tooling / manual): spawnEnemy, counterOf, random, waveScale.
 // Private state fields are prefixed with "_".
 
 import {
@@ -86,7 +86,7 @@ export function counterOf(el) {
 // Scaling
 // ---------------------------------------------------------------------------
 /** Per-wave enemy multipliers (see WAVE.scale). Speed saturates smoothly at 1 + speedMax. */
-function waveScale(n) {
+export function waveScale(n) {
   const k = Math.max(0, n - 1);
   const sc = WAVE.scale;
   return {

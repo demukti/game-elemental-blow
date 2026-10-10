@@ -6,6 +6,7 @@
 import { createGame, update, applyUpgrade } from './sim.js';
 import { createRenderer } from './render.js';
 import { createUI } from './ui.js';
+import { createManual } from './manual.js';
 import { audio } from './audio.js';
 import { createInput } from './input.js';
 import { botInput } from './bot.js';
@@ -119,7 +120,11 @@ const ui = createUI({
   onToggleMute: () => {
     if (!keyLock) setMuted(!muted);
   },
+  onOpenManual: () => manual.open(),
 });
+// Created before the app's own key handler below: while open, the manual's capture handler takes
+// Esc / H and keeps the other keys from reaching the screen underneath it.
+const manual = createManual();
 
 function dispatch(events) {
   if (!events.length) return;
@@ -305,7 +310,7 @@ window.addEventListener(
       e.preventDefault();
       fullscreen.exit();
       lockKeys();
-    } else if (e.code === 'KeyP' || e.code === 'Escape') {
+    } else if ((e.code === 'KeyP' || e.code === 'Escape') && !manual.isOpen()) {
       if (app === 'playing') {
         e.preventDefault();
         pause();
@@ -315,6 +320,12 @@ window.addEventListener(
         resume();
         lockKeys();
       }
+    } else if (e.code === 'KeyH' && app === 'playing') {
+      // the manual opens over the pause screen; closing it leaves the run paused
+      e.preventDefault();
+      pause();
+      manual.open();
+      lockKeys();
     } else if (e.code === 'KeyM' && !(e.target instanceof HTMLInputElement)) {
       setMuted(!muted);
       lockKeys();

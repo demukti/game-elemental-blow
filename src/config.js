@@ -1,7 +1,8 @@
 // Elemental Blow — shared constants + simulation tuning tables.
 //
 // Contract: render/ui code may import ONLY the four shared constants below.
-// Everything after them is private tuning data for sim.js / main.js / tests.
+// Everything after them is private tuning data for sim.js / main.js / tests, and for manual.js,
+// which only reads it to print the current numbers in the in-game manual.
 
 // ---------------------------------------------------------------------------
 // Shared constants (contract)
