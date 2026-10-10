@@ -227,6 +227,7 @@ kbd {
   font-size: 5.5em; letter-spacing: 0.14em; line-height: 1;
   text-shadow: 0 0.05em 0 rgba(0, 0, 0, 0.7), 0 0 0.5em rgba(150, 120, 255, 0.8);
   white-space: nowrap;
+  will-change: transform, opacity;
   animation: bannerIn 2s cubic-bezier(.2, .9, .3, 1) both;
 }
 .banner.wave { animation-duration: 2s; }
@@ -241,8 +242,10 @@ kbd {
   animation: warnIn 2.6s ease-out both;
 }
 @keyframes bannerIn {
-  0% { opacity: 0; transform: scale(2.2); letter-spacing: 0.5em; filter: blur(0.3em); }
-  14% { opacity: 1; transform: scale(1); letter-spacing: 0.14em; filter: none; }
+  /* transform + opacity only: animating letter-spacing / filter relaid out and re-rasterised the
+     big glowing text every frame and stalled the game for ~100-200 ms as each WAVE banner landed */
+  0% { opacity: 0; transform: scale(2.2); }
+  14% { opacity: 1; transform: scale(1); }
   80% { opacity: 1; transform: scale(1.03); }
   100% { opacity: 0; transform: scale(1.12) translateY(-0.2em); }
 }
