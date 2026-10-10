@@ -37,23 +37,27 @@ Board code:  $code
 Address:     $url
 
 1. Create the subdomain: DirectAdmin > Subdomain Management, add the first
-   part of $host (for games.example.com that is "games").
+   part of $host (for games.example.com that is "games"), keeping the
+   Default document root: domains/$host/public_html.
 
 2. Give it HTTPS: DirectAdmin > SSL Certificates > Let's Encrypt, and make sure
    $host is ticked. Opening https://$host/ must not show a certificate
    warning. The game runs on https and browsers refuse to talk to an address
    without a valid certificate.
 
-3. In File Manager open the subdomain's folder: domains > (main domain) >
-   public_html > (subdomain name). Upload elemental-blow-board.zip there,
-   select it and choose Extract. scores.php is now in that folder.
-   Delete the zip afterwards.
+3. In File Manager open domains > $host. If there is a private_html
+   folder next to public_html (not a link to it), HTTPS pages come from
+   private_html: use that one; otherwise use public_html. Upload
+   elemental-blow-board.zip there, select it and choose Extract. scores.php is
+   now in that folder. Delete the zip afterwards.
+   (A "Legacy" subdomain lives in domains > (main domain) > public_html >
+   (subdomain name) instead.)
 
 4. Check it in a browser:
      $url?board=$code
    {"scores":[]} means it works. It has made the folder
-   domains/(main domain)/elemental-blow-data, next to public_html, so it
-   cannot be opened from the web. The scores are kept there.
+   domains/$host/elemental-blow-data, next to public_html, so it cannot
+   be opened from the web. The scores are kept there.
 
 5. $game_line
    The players' link is:
@@ -64,7 +68,7 @@ If step 4 shows something else
 ------------------------------
 {"error":"storage"}
     PHP could not make the data folder. In File Manager, create a folder named
-    elemental-blow-data in domains/(main domain), next to public_html, and reload.
+    elemental-blow-data in domains/$host (next to public_html) and reload.
 
 {"error":"not configured"}
     scores.php is not inside a public_html folder. Open it in the File Manager
@@ -72,14 +76,16 @@ If step 4 shows something else
     '/home/YOUR-USER/domains/YOUR-DOMAIN/elemental-blow-data'.
 
 Page not found
-    The subdomain's files may live elsewhere (some setups use private_html for
-    https). Put scores.php in the folder the subdomain actually serves; the
-    scores still go to domains/(main domain)/elemental-blow-data.
+    scores.php is not in the folder HTTPS serves. If https://$host/ shows
+    "not found" even with an index.html in public_html, the account serves
+    HTTPS from private_html: create domains/$host/private_html if it is
+    missing and put scores.php there. The scores still go to
+    domains/$host/elemental-blow-data.
 
 
 Looking after the board
 -----------------------
-Scores: domains/(main domain)/elemental-blow-data/scores.json (the File
+Scores: domains/$host/elemental-blow-data/scores.json (the File
 Manager editor can change it). To remove a rude name or a fake score, delete
 that player's { ... } entry and keep the commas between entries valid. If the
 file is left broken, the board pauses (the game shows local scores) until it is
