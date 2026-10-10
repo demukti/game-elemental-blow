@@ -26,6 +26,13 @@ function hexToRgb(hex) {
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
   let dpr = 1, scale = 1, ox = 0, oy = 0, cssW = W, cssH = H;
+  // Backing-store budget. The renderer is fill-rate bound (additive glows, particles, full-screen
+  // passes), so cost scales with backing pixels, not with the window's CSS size. Never allocate more
+  // than MAX_PIXELS; on top of that `quality` shrinks the store further while frames run long.
+  const MAX_PIXELS = 2560 * 1440;
+  const Q_MIN = 0.55, Q_MAX = 1;
+  let quality = Q_MAX;
+  let ftAvg = 1 / 60, qCooldown = 1.5;   // grace period: first frames bake sprites and load fonts
   let t = 0;                       // renderer clock
   let shake = 0;
   let flashA = 0, flashColor = '#ffffff';
@@ -53,13 +60,14 @@ export function createRenderer(canvas) {
     return c;
   }
   // additive glow; caller owns globalAlpha restore (we reset to 1)
-  function glow(x, y, r, color, a) {
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = a;
-    ctx.drawImage(glowSprite(color), x - r, y - r, r * 2, r * 2);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
+  function glowTo(g, x, y, r, color, a) {
+    g.globalCompositeOperation = 'lighter';
+    g.globalAlpha = a;
+    g.drawImage(glowSprite(color), x - r, y - r, r * 2, r * 2);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
   }
+  function glow(x, y, r, color, a) { glowTo(ctx, x, y, r, color, a); }
 
   function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 
@@ -386,16 +394,37 @@ export function createRenderer(canvas) {
   }
 
   // ---------- floor / background ----------
+  const TINT_R = 1100, TINT_A = 0.22;
+  // Floor with one element's tint baked in: in steady state (nearly always) this replaces a
+  // full-screen additive pass per frame with a single opaque blit.
+  const tintedFloors = new Map();
+  function tintedFloor(el) {
+    let c = tintedFloors.get(el);
+    if (c) return c;
+    c = makeCanvas(W, H);
+    const g = c.getContext('2d');
+    g.drawImage(floorCanvas, 0, 0);
+    glowTo(g, W / 2, H / 2, TINT_R, col(el), TINT_A);
+    tintedFloors.set(el, c);
+    return c;
+  }
   function drawFloor(dt, state) {
     if (!floorCanvas) buildFloor();
-    ctx.drawImage(floorCanvas, 0, 0);
     let target = null;
     if (state && state.player && ELS.indexOf(state.player.element) >= 0) target = state.player.element;
     else if (!state) target = ELS[Math.floor(t / 4) % 4];
+    let solo = null, blending = false;
     for (let i = 0; i < 4; i++) {
       const el = ELS[i];
       tintA[el] += ((el === target ? 1 : 0) - tintA[el]) * Math.min(1, dt * 2.2);
-      if (tintA[el] > 0.01) glow(W / 2, H / 2, 1100, col(el), tintA[el] * 0.22);
+      if (tintA[el] > 0.985) solo = el;
+      else if (tintA[el] > 0.01) blending = true;
+    }
+    if (solo && !blending) { ctx.drawImage(tintedFloor(solo), 0, 0); return; }
+    ctx.drawImage(floorCanvas, 0, 0);
+    for (let i = 0; i < 4; i++) {
+      const el = ELS[i];
+      if (tintA[el] > 0.01) glow(W / 2, H / 2, TINT_R, col(el), tintA[el] * TINT_A);
     }
   }
 
@@ -807,11 +836,16 @@ export function createRenderer(canvas) {
 
   // ---------- main render ----------
   function render(state, dtReal) {
+    autoQuality(num(dtReal, 0));
     const dt = clamp(num(dtReal, 1 / 60), 0, 0.05);
     t += dt;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = '#04050a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // The floor is opaque and covers the whole arena, so only the letterbox bars need clearing.
+    ctx.fillStyle = '#04050a';
+    const bw = canvas.width, bh = canvas.height, ax = Math.ceil(ox * dpr), ay = Math.ceil(oy * dpr);
+    if (ax > 0) { ctx.fillRect(0, 0, ax, bh); ctx.fillRect(bw - ax, 0, ax, bh); }
+    if (ay > 0) { ctx.fillRect(0, 0, bw, ay); ctx.fillRect(0, bh - ay, bw, ay); }
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
     ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
 
@@ -935,12 +969,34 @@ export function createRenderer(canvas) {
   }
 
   // ---------- sizing ----------
+  // Dynamic resolution: watch the wall-clock frame time the main loop hands us (sim + draw +
+  // HUD + compositing). Sustained long frames step the backing store down; after a quiet
+  // spell it creeps back up. Each step reallocates the canvas, so steps are rate limited.
+  function autoQuality(dtRaw) {
+    if (!(dtRaw > 0) || dtRaw > 0.1) return;           // paused, or a hitch (tab switch, GC) - not load
+    ftAvg += (dtRaw - ftAvg) * 0.06;                   // ~16-frame average
+    qCooldown -= dtRaw;
+    if (qCooldown > 0) return;
+    if (ftAvg > 1 / 45 && quality > Q_MIN) {           // > 22 ms sustained: drop a notch
+      quality = Math.max(Q_MIN, quality - 0.1);
+      qCooldown = 1.0; ftAvg = 1 / 60;
+      resize();
+    } else if (ftAvg < 1 / 57 && quality < Q_MAX) {    // comfortably under 17.5 ms: creep back
+      quality = Math.min(Q_MAX, quality + 0.05);
+      qCooldown = 4.0;
+      resize();
+    }
+  }
   function resize() {
     bossBarAt = -1;
     // Cap at 2: a 3x backing store is over twice the pixels per frame for no visible gain.
-    dpr = Math.min(2, window.devicePixelRatio || 1);
+    const native = Math.min(2, window.devicePixelRatio || 1);
     cssW = Math.max(1, window.innerWidth); cssH = Math.max(1, window.innerHeight);
-    canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr);
+    // Pixel budget: a 4K screen (8.3 MP at dpr 1, or 1920x1080 at dpr 2) is scaled down to fit
+    // MAX_PIXELS; the browser upsamples the canvas to the window via CSS.
+    const px = cssW * cssH * native * native;
+    dpr = (px > MAX_PIXELS ? native * Math.sqrt(MAX_PIXELS / px) : native) * quality;
+    canvas.width = Math.max(1, Math.round(cssW * dpr)); canvas.height = Math.max(1, Math.round(cssH * dpr));
     canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
     scale = Math.min(cssW / W, cssH / H);
     ox = (cssW - W * scale) / 2; oy = (cssH - H * scale) / 2;
@@ -952,5 +1008,6 @@ export function createRenderer(canvas) {
 
   resize();
   if (typeof window !== 'undefined') window.addEventListener('resize', resize);
-  return { resize, render, handleEvents, screenToWorld };
+  const stats = () => ({ quality, dpr, backing: canvas.width + 'x' + canvas.height, frameMs: Math.round(ftAvg * 10000) / 10 });
+  return { resize, render, handleEvents, screenToWorld, stats };
 }

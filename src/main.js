@@ -402,6 +402,10 @@ window.elementalBlow = {
   get state() {
     return state;
   },
+  // Renderer resolution/frame-time stats: { quality, dpr, backing, frameMs }.
+  get render() {
+    return renderer.stats();
+  },
 };
 
 onResize();

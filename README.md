@@ -81,3 +81,7 @@ The browser stores these in `localStorage`: `elemental-blow-best` (best run), `e
 ## Tweaking balance
 
 Edit `src/config.js` and reload; no build needed. Tables: `PLAYER` (HP, speed, dash), `BLOWS` (cooldown, damage, range per element), `ULT`, `ENEMIES`, `BOSS`, `WAVE` (budget, spawn rate, boss frequency), `COMBO`, `PICKUPS`, `CAPS` and `UPGRADES`. Per-wave HP, speed and damage scaling lives in `waveScale` in `src/sim.js`. Run `npm test` after changes, since some tests assume the default numbers.
+
+## Performance
+
+The renderer is fill-rate bound: additive glows, particles and the full-screen floor and vignette passes cost in proportion to the canvas backing store, not the window size. `src/render.js` therefore caps the backing store at 2560x1440 pixels regardless of screen size (a 4K display is upsampled by the browser) and scales it down further while frames run long, creeping back once they recover. Read the current state in the console with `elementalBlow.render` (`quality` 0.55 to 1, `backing` size, `frameMs` average). Adjust `MAX_PIXELS`, `Q_MIN` and the thresholds in `autoQuality` to taste.
