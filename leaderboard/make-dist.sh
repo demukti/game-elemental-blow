@@ -1,71 +1,73 @@
 #!/bin/sh
-# Builds dist/elemental-blow-board.zip (scores.php with the board code filled in) and dist/UPLOAD.txt, for a
-# PHP host's file manager: upload the zip into the site's folder, Extract. The instructions use BOARD_URL from
-# src/board.js when it is set.
-# Usage: npm run dist [-- CODE]   CODE is the board code; a random one is made if it is left out.
+# Builds dist/elemental-blow.zip, the whole game ready to unpack into a website's folder: index.html,
+# style.css and src/ (with BOARD_URL set to the scores.php next to them) plus scores.php with the board
+# code filled in, and dist/UPLOAD.txt with step-by-step instructions.
+# Usage: npm run dist [-- CODE [HOST]]   CODE: board code (random if left out); HOST: the site, e.g.
+# games.example.com, used only in UPLOAD.txt.
 # dist/ holds the board code, so it is git-ignored: keep it out of the public repo.
 set -eu
 cd "$(dirname "$0")/.."
 
 code="${1:-eb-$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 6)}"
+host="${2:-YOUR-SITE}"
 if ! printf '%s' "$code" | grep -Eq '^[a-z0-9-]{3,32}$'; then
   echo "board code: 3 to 32 lowercase letters, digits and dashes" >&2
   exit 1
 fi
-url=$(sed -n "s|^export const BOARD_URL = '\([^']*\)'.*|\1|p" src/board.js)
-host=$(printf '%s' "$url" | sed -n 's|^https://\([^/]*\)/.*|\1|p')
-if [ -n "$url" ]; then
-  game_line="The game already points at $url."
-else
-  url='https://YOUR-SUBDOMAIN/scores.php'
-  host='YOUR-SUBDOMAIN'
-  game_line="Set BOARD_URL in src/board.js to $url and publish the game."
-fi
 
 rm -rf dist
-mkdir -p dist/stage
+mkdir -p dist/stage/src
+cp index.html style.css dist/stage/
+cp src/*.js dist/stage/src/
+sed -i.bak "s|^export const BOARD_URL = '';|export const BOARD_URL = 'scores.php';|" dist/stage/src/board.js
+rm dist/stage/src/board.js.bak
+grep -q "^export const BOARD_URL = 'scores.php';" dist/stage/src/board.js
 sed "s|^const BOARDS = \['change-me'\];|const BOARDS = ['$code'];|" leaderboard/scores.php > dist/stage/scores.php
 grep -q "^const BOARDS = \['$code'\];" dist/stage/scores.php
-(cd dist/stage && zip -qX ../elemental-blow-board.zip scores.php)
+(cd dist/stage && zip -qrX ../elemental-blow.zip index.html style.css src scores.php)
 rm -rf dist/stage
 
 cat > dist/UPLOAD.txt <<EOF
-Elemental Blow friends board: upload with DirectAdmin
-=====================================================
+Elemental Blow: upload the game with its friends board (DirectAdmin)
+====================================================================
 
-Board code:  $code
-Address:     $url
+Board code:    $code
+Players' link: https://$host/?board=$code
 
-1. Create the subdomain: DirectAdmin > Subdomain Management, add the first
-   part of $host (for games.example.com that is "games"), keeping the
-   Default document root: domains/$host/public_html.
+1. The site needs its own (sub)domain with HTTPS: DirectAdmin > Subdomain
+   Management (keep the Default document root, domains/$host/public_html),
+   then SSL/TLS Certificates, so that https://$host/ shows no certificate
+   warning.
 
-2. Give it HTTPS: DirectAdmin > SSL Certificates > Let's Encrypt, and make sure
-   $host is ticked. Opening https://$host/ must not show a certificate
-   warning. The game runs on https and browsers refuse to talk to an address
-   without a valid certificate.
+2. In File Manager open domains > $host > public_html and delete what
+   DirectAdmin or an earlier upload put there (index.html, scores.php, old
+   zips). cgi-bin can stay.
 
-3. In File Manager open domains > $host. If there is a private_html
-   folder next to public_html (not a link to it), HTTPS pages come from
-   private_html: use that one; otherwise use public_html. Upload
-   elemental-blow-board.zip there, select it and choose Extract. scores.php is
-   now in that folder. Delete the zip afterwards.
-   (A "Legacy" subdomain lives in domains > (main domain) > public_html >
-   (subdomain name) instead.)
+3. Upload elemental-blow.zip there, select it and choose Extract. You get
+   index.html, style.css, scores.php and a src folder. Delete the zip.
 
-4. Check it in a browser:
-     $url?board=$code
-   {"scores":[]} means it works. It has made the folder
-   domains/$host/elemental-blow-data, next to public_html, so it cannot
-   be opened from the web. The scores are kept there.
+4. Open the players' link above. The menu shows "Friends Board" with
+   "No scores yet. Be the first!". Every run that scores asks for a name.
+   The scores are kept in domains/$host/elemental-blow-data, next to
+   public_html, so they cannot be opened from the web.
 
-5. $game_line
-   The players' link is:
-     https://demukti.github.io/game-elemental-blow/?board=$code
+5. Send the players' link to the players. Their browser remembers the code,
+   so https://$host/ alone works for them afterwards. Anyone who opens the
+   site without the code plays with scores kept only on their own device.
 
 
-If step 4 shows something else
-------------------------------
+Updating the game later
+-----------------------
+Build again with the same code (npm run dist -- $code $host), then upload
+and Extract the new zip over the old files. The scores are outside
+public_html, so they stay.
+
+
+If something is off
+-------------------
+https://$host/scores.php?board=$code should show the board as text, like
+{"scores":[]}. If it shows:
+
 {"error":"storage"}
     PHP could not make the data folder. In File Manager, create a folder named
     elemental-blow-data in domains/$host (next to public_html) and reload.
@@ -73,22 +75,19 @@ If step 4 shows something else
 {"error":"not configured"}
     scores.php is not inside a public_html folder. Open it in the File Manager
     editor and set DATA_DIR near the top to a folder outside public_html, e.g.
-    '/home/YOUR-USER/domains/YOUR-DOMAIN/elemental-blow-data'.
+    '/home/YOUR-USER/domains/$host/elemental-blow-data'.
 
-Page not found
-    scores.php is not in the folder HTTPS serves. If https://$host/ shows
-    "not found" even with an index.html in public_html, the account serves
-    HTTPS from private_html: create domains/$host/private_html if it is
-    missing and put scores.php there. The scores still go to
-    domains/$host/elemental-blow-data.
+"Friends board unreachable right now" in the game
+    The game could not load scores.php from its own folder: check the address
+    above.
 
 
 Looking after the board
 -----------------------
-Scores: domains/$host/elemental-blow-data/scores.json (the File
-Manager editor can change it). To remove a rude name or a fake score, delete
-that player's { ... } entry and keep the commas between entries valid. If the
-file is left broken, the board pauses (the game shows local scores) until it is
+Scores: domains/$host/elemental-blow-data/scores.json (the File Manager
+editor can change it). To remove a rude name or a fake score, delete that
+player's { ... } entry and keep the commas between entries valid. If the file
+is left broken, the board pauses (the game shows local scores) until it is
 fixed.
 
 Backups: the same folder keeps scores.bak.YYYY-MM-DD.json for the last 7 days.
@@ -99,4 +98,4 @@ e.g.  const BOARDS = ['$code', 'cousins'];
 Each code is its own board; a removed code stops working.
 EOF
 
-echo "Built dist/elemental-blow-board.zip and dist/UPLOAD.txt (board code: $code, address: $url)"
+echo "Built dist/elemental-blow.zip and dist/UPLOAD.txt (board code: $code, site: $host)"

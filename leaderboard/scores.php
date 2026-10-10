@@ -1,6 +1,7 @@
 <?php
 // Elemental Blow friends leaderboard: one file, no database. Scores live in a JSON file in a
-// folder outside the web root. Setup, moderation and security notes: README.md next to this file.
+// folder outside the web root. Normally it sits next to the game's index.html (npm run dist builds
+// that zip). Setup, moderation and security notes: README.md next to this file.
 //
 //   GET  scores.php?board=CODE   ->  {"scores": [{"name", "score", "wave"}, ...]}  (best first)
 //   POST scores.php              ->  the same, plus "me": {"rank", "name", "score", "wave"}
@@ -12,11 +13,13 @@
 declare(strict_types=1);
 
 // ---- Settings: edit these after uploading ----------------------------------------------------
-// Board codes this script accepts. Share the game link with one: .../game-elemental-blow/?board=CODE
+// Board codes this script accepts. Share the game link with one: https://your-site/?board=CODE
 // 3 to 32 characters: lowercase letters, digits and dashes.
 const BOARDS = ['change-me'];
-// Pages allowed to read the board from a browser (scheme and host, no trailing slash).
-const ALLOWED_ORIGINS = ['https://demukti.github.io'];
+// Other sites whose pages may use the board from a browser (scheme and host, no trailing slash), for a
+// copy of the game served elsewhere, e.g. ['https://demukti.github.io']. The site serving this script
+// is always allowed.
+const ALLOWED_ORIGINS = [];
 // Folder for the score file. Leave '' when the script sits anywhere under a folder named public_html or
 // private_html (DirectAdmin, cPanel): it then uses elemental-blow-data next to the outermost one, e.g.
 // /home/you/domains/example.com/elemental-blow-data, outside every site's web root. Otherwise set an
@@ -45,6 +48,8 @@ header('Referrer-Policy: no-referrer');
 header('Vary: Origin');
 
 $origin = (string) ($_SERVER['HTTP_ORIGIN'] ?? '');
+$host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+$same_site = $host !== '' && preg_replace('#^https?://#', '', $origin) === $host; // the game's own page
 if (in_array($origin, ALLOWED_ORIGINS, true)) {
     header('Access-Control-Allow-Origin: ' . $origin);
 }
@@ -229,7 +234,7 @@ if ($method !== 'POST') {
     reply(200, ['scores' => top(rows($data[$board] ?? []))]);
 }
 
-if ($origin !== '' && !in_array($origin, ALLOWED_ORIGINS, true)) {
+if ($origin !== '' && !$same_site && !in_array($origin, ALLOWED_ORIGINS, true)) {
     fail(403, 'origin not allowed');
 }
 $raw = file_get_contents('php://input', false, null, 0, MAX_BODY + 1);

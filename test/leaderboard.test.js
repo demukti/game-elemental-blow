@@ -38,7 +38,7 @@ function setUp({ boards = ['wolfpack'], dataDir = 'data/eb', configure = true, w
       src = src.replace(from, to);
     };
     set("const BOARDS = ['change-me'];", `const BOARDS = ${JSON.stringify(boards).replace(/"/g, "'")};`);
-    set("const ALLOWED_ORIGINS = ['https://demukti.github.io'];", `const ALLOWED_ORIGINS = ['${ORIGIN}'];`);
+    set('const ALLOWED_ORIGINS = [];', `const ALLOWED_ORIGINS = ['${ORIGIN}'];`);
     if (dataDir) set("const DATA_DIR = '';", `const DATA_DIR = '${path.join(tmp, dataDir)}';`);
   }
   fs.writeFileSync(path.join(www, 'scores.php'), src);
@@ -153,6 +153,7 @@ test('leaderboard: rejects bad input without touching the file', { skip }, async
     assert.equal(typeof r.body.error, 'string');
   }
   assert.equal((await post(srv, ok, { Origin: 'https://evil.example' })).status, 403);
+  assert.equal((await post(srv, ok, { Origin: 'https://127.0.0.1.evil.example' })).status, 403);
   assert.equal((await fetch(srv.url, { method: 'PUT' })).status, 405);
   assert.equal(fs.readFileSync(srv.file, 'utf8'), before);
 });
@@ -294,4 +295,13 @@ test('leaderboard: with no DATA_DIR and no public_html above it, it is not confi
   } finally {
     s.stop();
   }
+});
+
+test('leaderboard: the page on the same site may post without being listed', { skip }, async () => {
+  const host = new URL(srv.url).host;
+  const r = await post(srv, { board: 'wolfpack', name: 'Local', score: 70, wave: 1 }, { Origin: `http://${host}` });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.me.name, 'Local');
+  assert.equal(r.headers.get('access-control-allow-origin'), null); // same site: no CORS header needed
+  assert.equal((await post(srv, { board: 'wolfpack', name: 'Other', score: 70, wave: 1 }, { Origin: `http://${host}.evil.example` })).status, 403);
 });

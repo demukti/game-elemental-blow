@@ -2,7 +2,9 @@
 // (setup: leaderboard/README.md). It is on only when BOARD_URL is set and the game was opened once
 // with ?board=CODE; this browser remembers the code. Otherwise the game keeps its local board only.
 
-export const BOARD_URL = 'https://elementalblow.mukti.eu/scores.php'; // e.g. 'https://games.example.com/scores.php'
+// Address of scores.php. `npm run dist` sets 'scores.php' (next to index.html) in the zip it builds;
+// a copy of the game served elsewhere can use a full address, e.g. 'https://games.example.com/scores.php'.
+export const BOARD_URL = '';
 
 const CODE_KEY = 'elemental-blow-board';
 const CODE_RE = /^[a-z0-9-]{3,32}$/;
