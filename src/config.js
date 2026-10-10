@@ -109,15 +109,21 @@ export const ENEMIES = {
 };
 
 export const BOSS = {
-  hpPerBoss: 0.55, // +55% HP per later boss (wave 10 boss = 1.55x, wave 15 = 2.1x)
-  dmgPerWave: 0.025, // boss contact + bolt damage scale gentler than regular enemy damage
+  hpPerBoss: 0.5, // +50% HP per later boss (wave 10 boss = 1.5x, wave 15 = 2x): patterns stack later, so HP grows gently
+  dmgPerWave: 0.015, // boss contact + bolt + signature damage scale gentler than regular enemy damage
+  firstBoss: 0.7, // damage multiplier for the first boss (wave 5): a learnable fight, not a wall
+  windedContact: 0, // contact damage multiplier while winded: the weak-point window is safe to hug
+  escort: { perBoss: 3, spitterEvery: 3 }, // later bosses bring (k - 1) * perBoss escorts, every spitterEvery-th a spitter
   preHeal: 0.4, // fraction of max HP restored when a boss wave is set up
+  spawnY: 260, // boss arrival y (px from the top): clear of its own HP bar
+  hudStrip: 170, // while stalking above this y the boss drifts down, so fights do not hang under the HUD
   thresholds: [0.66, 0.33], // element shifts
   idle: [1.7, 1.35, 1.05], // pause between patterns, per phase
   burstWindup: 0.75,
   burstGap: 0.32,
   burstRings: 2, // +1 in the last phase
-  burstBase: 14, // bolts per ring, + 2 per phase, + 1 per later boss
+  burstBase: 12, // bolts per ring, + 2 per phase, + burstPerBoss per later boss
+  burstPerBoss: 2,
   burstMax: 30,
   summonWindup: 0.8,
   maxMinions: 10,
@@ -140,14 +146,14 @@ export const BOSS = {
   // player, biased `lead` seconds ahead of its velocity, detonate after `fuse` s in `radius` and leave a
   // burning patch (burnR px, burnLife s, burnDmg per tick; ticks are limited by the player's hit invulnerability).
   meteor: {
-    count: 5, perBoss: 1, countMax: 9, fuse: 1.0, radius: 70, dmg: 16, kb: 320, lead: 0.5,
+    count: 4, perBoss: 1, countMax: 9, fuse: 1.0, radius: 70, dmg: 16, kb: 320, lead: 0.5,
     spread: 190, spreadPer: 16, // scatter radius around the aim point: spread + spreadPer * count
     burnR: 55, burnLife: 1.5, burnDmg: 5, shock: 0.35,
   },
   // water: tide. Two wall segments sweep from the boss toward the player with a `gap` between them; one
   // wall is centred on the player, so the player has to sidestep (or dash through). half = half-length
   // of each wall (+perBossHalf per later boss, max halfMax), thick = wall thickness along its travel.
-  tide: { speed: 250, half: 170, perBossHalf: 40, halfMax: 300, gap: 120, thick: 44, dmg: 16, kb: 820, maxLife: 5, shock: 0.5 },
+  tide: { speed: 250, half: 170, perBossHalf: 30, halfMax: 300, gap: 120, thick: 44, dmg: 16, kb: 820, maxLife: 5, shock: 0.5 },
   // earth: quake. The slam sends `rings` (+perBoss, max ringsMax) thin expanding ring hazards from the
   // boss, each `ringGap` s apart, each with a walkable gap of `gapW` radians; dashing through is a
   // perfect dodge. `pillars` stone pillars (pillarMin..pillarMax px from the boss) hurt on contact.
@@ -162,8 +168,9 @@ export const BOSS = {
   gale: { time: 1.5, pull: 1800, perBoss: 250, pullMax: 2400, pairs: 3, pairGap: 0.45, pairSpread: 0.14, boltSpeed: 1.15 },
   // phase 2+: summon becomes "elemental echo": short-lived stationary spitter turrets in the boss's element
   echo: { count: 2, life: 6, windup: 0.8, range: 150 },
-  // phase 3 ("enraged"): shorter idle, and patterns come in back-to-back pairs
-  enrage: { idle: 0.7, shock: 0.8 },
+  // phase 3 ("enraged"): shorter idle, and patterns come in back-to-back pairs; chainEvery[k - 1] (the last entry
+  // extends) says every how many-th pattern starts a pair: the first two bosses chain every other one, later ones all
+  enrage: { idle: 0.7, shock: 0.8, chainEvery: [2, 2, 1] },
 };
 
 // Wave director. Regular waves spend a budget on bodies (ENEMIES[type].cost); the rest is the clock.

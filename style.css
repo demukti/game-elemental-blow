@@ -76,7 +76,9 @@ kbd {
 .hud-tl { top: 1.3em; left: 1.5em; width: 19em; display: flex; flex-direction: column; gap: 0.7em; }
 .hud-tc { top: 1.2em; left: 50%; transform: translateX(-50%); text-align: center; min-width: 14em; }
 .hud-tr { top: 1.2em; right: 1.6em; text-align: right; min-width: 12em; }
-.hud-tl, .hud-tr, .hud-bc { transition: opacity 0.25s ease; }
+.hud-tl, .hud-tr, .hud-bc { transition: opacity 0.15s ease; }
+/* player fighting along the top or bottom edge: let enemies show through the strips */
+.hud.near-top .hud-tl, .hud.near-top .hud-tr, .hud.near-bottom .hud-bc { opacity: 0.45; }
 .hud-tl.faded, .hud-tr.faded, .hud-bc.faded { opacity: 0.25; }
 .hud-bc { bottom: 0.6em; left: 50%; transform: translateX(-50%); display: flex; align-items: flex-end; gap: 0.9em; }
 
@@ -219,7 +221,7 @@ kbd {
 .dash.ready .dash-label { color: #9ff0ff; }
 
 /* ============================================================ banners / flash */
-.banners { position: absolute; left: 0; right: 0; top: 24%; display: flex; flex-direction: column; align-items: center; gap: 0.3em; pointer-events: none; }
+.banners { position: absolute; left: 0; right: 0; top: 24%; display: flex; flex-direction: column; align-items: center; gap: 0.8em; pointer-events: none; }
 .banner {
   font-family: var(--font-display);
   font-size: 5.5em; letter-spacing: 0.14em; line-height: 1;

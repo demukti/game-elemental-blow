@@ -234,9 +234,9 @@ function planWave(state, n) {
     const k = bossIndex(n);
     q.push({ type: 'boss', element: pick(state, ELEMENTS) });
     // Later bosses bring an escort.
-    const escorts = (k - 1) * 4;
+    const escorts = (k - 1) * BOSS.escort.perBoss;
     for (let i = 0; i < escorts; i++) {
-      q.push({ type: i % 3 === 2 ? 'spitter' : 'grunt', element: pick(state, pal) });
+      q.push({ type: i % BOSS.escort.spitterEvery === BOSS.escort.spitterEvery - 1 ? 'spitter' : 'grunt', element: pick(state, pal) });
     }
     return q;
   }
@@ -353,7 +353,7 @@ function spawnFromQueue(state) {
     } else {
       state._queue.shift();
       if (entry.type === 'boss') {
-        spawnEnemy(state, 'boss', entry.element, W / 2, ENEMIES.boss.r + 70);
+        spawnEnemy(state, 'boss', entry.element, W / 2, BOSS.spawnY);
       } else {
         const pt = spawnPoint(state, ENEMIES[entry.type].r);
         spawnEnemy(state, entry.type, entry.element, pt.x, pt.y);
@@ -417,7 +417,7 @@ export function spawnEnemy(state, type, element, x, y, opts = {}) {
   if (!def) throw new Error(`unknown enemy type: ${type}`);
   const el = ELEMENTS.includes(element) ? element : 'fire';
   const sc = waveScale(state.wave);
-  const dmgScale = type === 'boss' ? 1 + BOSS.dmgPerWave * (state.wave - 1) : sc.dmg;
+  const dmgScale = type === 'boss' ? (1 + BOSS.dmgPerWave * (state.wave - 1)) * (bossIndex(state.wave) === 1 ? BOSS.firstBoss : 1) : sc.dmg;
   let hp;
   if (type === 'boss') hp = def.hp * (1 + BOSS.hpPerBoss * (bossIndex(state.wave) - 1));
   else hp = def.hp * sc.hp * (opts.minion ? 1 : state._waveHp);
@@ -482,6 +482,7 @@ export function spawnEnemy(state, type, element, x, y, opts = {}) {
     winded: 0,
     enraged: false,
     _patterns: 0, // boss: patterns used so far (the first one is scripted)
+    _gaps: 0, // boss: idle gaps taken while enraged (chain cadence, see BOSS.enrage.chainEvery)
     _sig: null, // boss: signature pattern being wound up
     _windDur: 0,
     _chained: false,
@@ -720,11 +721,15 @@ function damagePlayer(state, dmg, sx, sy, kb, element) {
     }
   }
   emit(state, { type: 'playerHit', x: p.x, y: p.y, dmg: Math.max(1, Math.round(d)), resisted });
-  if (p.hp <= 0) {
-    state.phase = 'gameover';
-    emit(state, { type: 'gameOver', score: state.score, wave: state.wave });
-  }
+  if (p.hp <= 0) endRun(state);
   return true;
+}
+
+/** The run ends: phase gameover + gameOver event (a lethal hit, or hp set to 0 from outside). */
+function endRun(state) {
+  state.player.hp = 0;
+  state.phase = 'gameover';
+  emit(state, { type: 'gameOver', score: state.score, wave: state.wave });
 }
 
 // ---------------------------------------------------------------------------
@@ -1294,8 +1299,10 @@ function bossWindup(state, base) {
 function bossIdle(state, e) {
   clearWindup(e);
   e.winded = 0;
-  if (e.enraged && !e._chained) {
-    // enraged: patterns come in pairs, the second one follows without the idle gap
+  const ce = BOSS.enrage.chainEvery;
+  const chainEvery = ce[Math.min(bossIndex(state.wave), ce.length) - 1];
+  if (e.enraged && !e._chained && ++e._gaps % chainEvery === 0) {
+    // enraged: every chainEvery-th pattern chains straight into a second one, without the idle gap
     e._chained = true;
     const p = state.player;
     bossChoose(state, e, Math.hypot(p.x - e.x, p.y - e.y));
@@ -1322,7 +1329,7 @@ function minionCount(state) {
 
 function bossRing(state, e, offset) {
   const k = bossIndex(state.wave);
-  const n = Math.min(BOSS.burstMax, BOSS.burstBase + 2 * e._phase + (k - 1));
+  const n = Math.min(BOSS.burstMax, BOSS.burstBase + 2 * e._phase + BOSS.burstPerBoss * (k - 1));
   const sp = ENEMIES.boss.boltSpeed * (1 + 0.06 * e._phase);
   for (let i = 0; i < n; i++) fireBolt(state, e, offset + (i / n) * TAU, sp, ENEMIES.boss.boltR);
   emit(state, { type: 'enemyShoot', x: e.x, y: e.y, element: e.element, burst: true });
@@ -1356,6 +1363,7 @@ function bossEcho(state, e) {
     });
     t.life = E.life; // extra: seconds left before the turret expires (only set on echo turrets)
     t._speed = 0; // a turret: it aims and fires but never walks
+    t._boltDmg = e._boltDmg; // an echo of the boss: its bolts hit like the boss's, not like a wave-scaled spitter's
     t._fireT = 0.6 + i * 0.4;
     state.waveInfo.total++;
   }
@@ -1562,7 +1570,7 @@ function aiBoss(state, e, dt, sm, ux, uy, d) {
       e._my = 0;
       if (e._aiT <= 0) {
         const k = bossIndex(state.wave);
-        const n = Math.min(BOSS.burstMax, BOSS.burstBase + 2 * e._phase + (k - 1));
+        const n = Math.min(BOSS.burstMax, BOSS.burstBase + 2 * e._phase + BOSS.burstPerBoss * (k - 1));
         bossRing(state, e, e._spiralA + (e._rings % 2) * (Math.PI / n));
         e._rings--;
         e._aiT = BOSS.burstGap;
@@ -1694,6 +1702,8 @@ function aiBoss(state, e, dt, sm, ux, uy, d) {
         e._mx = -uy * sp * 0.6 * e._strafe;
         e._my = ux * sp * 0.6 * e._strafe;
       }
+      // keep the fight out from under the HUD: inside the top strip, drift down at least half speed
+      if (e.y < BOSS.hudStrip) e._my = Math.max(e._my, sp * 0.5);
       if (e._aiT <= 0) bossChoose(state, e, d);
     }
   }
@@ -1915,8 +1925,10 @@ function updateEnemies(state, dt) {
         } else if (e.type === 'boss' && e._ai === 'charge') {
           dmg *= 1.3;
           kb = 720;
+        } else if (e.type === 'boss' && e.winded > 0) {
+          dmg *= BOSS.windedContact;
         }
-        if (damagePlayer(state, dmg, e.x, e.y, kb, e.element)) {
+        if (dmg > 0 && damagePlayer(state, dmg, e.x, e.y, kb, e.element)) {
           e._atkCd = def.contactCd;
           if (e.type === 'brute' && e._ai === 'charge') e._chargeHit = true;
         }
@@ -2287,6 +2299,7 @@ export function applyUpgrade(state, upgradeId) {
 export function update(state, input, dt) {
   state.events = [];
   if (state.phase !== 'playing') return;
+  if (state.player.hp <= 0) return endRun(state); // hp zeroed from outside (console): never an immortal zombie
   if (!(dt > 0)) return;
   dt = Math.min(dt, 0.1);
   const inp = normInput(input, state.player);

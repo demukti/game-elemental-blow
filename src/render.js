@@ -37,7 +37,7 @@ export function createRenderer(canvas) {
   let shake = 0;
   let flashA = 0, flashColor = '#ffffff';
   let lastPlayer = { x: W / 2, y: H / 2, element: 'fire' };
-  let bossGhost = 1;
+  let bossGhost = 1, bossBarA = 1;   // boss bar: HP ghost and the fade while the action sits under it
   const tintA = { fire: 0, water: 0, earth: 0, air: 0 };
 
   // ---------- sprite caches ----------
@@ -292,6 +292,7 @@ export function createRenderer(canvas) {
     roar: { jitter: 0.15, zoom: 0.5, rot: 0, ring: 1.4, flash: 1.3, vig: 0.6 },
   };
   const MAXW = 6;
+  let lastShockAt = -1;            // rate cap: small shocks are skipped while a recent one is still felt
   const waves = [];
   for (let i = 0; i < MAXW; i++) waves.push({ life: 0, max: 1, x: 0, y: 0, r0: 0, r1: 0, w: 10, color: '#fff' });
   let wHead = 0;
@@ -305,6 +306,8 @@ export function createRenderer(canvas) {
     const o = opts || STD, k = KINDS[o.kind] || STD;
     const get = (name, d) => num(o[name], num(k[name], num(STD[name], d)));
     const p = clamp(num(power, 0.5), 0, 1);
+    if (p < 0.4 && lastShockAt >= 0 && t - lastShockAt < 0.5) return;
+    lastShockAt = t;
     x = clamp(num(x, lastPlayer.x), 0, W); y = clamp(num(y, lastPlayer.y), 0, H);
     const c = typeof color === 'string' ? color : col(color);
     // shudder: oscillating, decays with its own rate; biggest live request wins
@@ -415,7 +418,7 @@ export function createRenderer(canvas) {
           break;
         case 'blow': {
           const r = num(e.r, 300);
-          addShake(24); flash(c, 0.5);
+          addShake(24); flash(c, 0.25);   // soft: the boss's telegraphs must stay readable through the nova
           shock(x, y, 1, c, { jitter: 0.6, r: r * 1.6, flash: 0, hold: 0.08 });
           ring(x, y, c, r, 0.55); ring(x, y, '#ffffff', r * 0.7, 0.4); ring(x, y, c, r * 0.4, 0.3);
           sparks(x, y, c, 40, 700, 0.6); burst(x, y, '#ffffff', 10, 400, 4, 0.5);
@@ -450,7 +453,7 @@ export function createRenderer(canvas) {
         case 'explosion': {
           const r = num(e.r, 80);
           addShake(clamp(r / 14, 3, 14));
-          if (r >= 90) shock(x, y, clamp(r / 400, 0.15, 0.4), c, { zoom: 0.6, ring: 0, flash: 0 });
+          if (r >= 140) shock(x, y, clamp(r / 400, 0.15, 0.4), c, { zoom: 0.6, ring: 0, flash: 0 });
           burst(x, y, c, 16, r * 3.2, 4, 0.5); sparks(x, y, c, 12, r * 5, 0.4);
           smoke(x, y, c, 3, 100, r * 0.3, 0.6); ring(x, y, c, r, 0.35);
           break;
@@ -745,19 +748,28 @@ export function createRenderer(canvas) {
           break;
         }
         case 'pillar': {
+          // Stone, not an earth minion: grey block with a lighter top facet, hostile dotted rim.
+          // The sim's rise phase (first 0.3 s, no contact damage yet) is a bottom-up wipe.
           const age = ml - num(f.life, 0), rise = clamp(age / 0.3, 0, 1), out = Math.min(1, num(f.life, 0) / 0.4);
-          const rr = r * rise, id = num(f.id, 1);
-          ctx.save(); ctx.translate(x, y); ctx.globalAlpha = out;
-          glow(0, 0, rr * 1.8, c, 0.3 * out);
-          ctx.fillStyle = '#000'; ctx.globalAlpha = 0.35 * out;
-          ctx.beginPath(); ctx.ellipse(0, rr * 0.5, rr * 1.1, rr * 0.5, 0, 0, TAU); ctx.fill();
-          ctx.globalAlpha = out; ctx.fillStyle = dark('earth'); ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.lineJoin = 'round';
-          poly(6, rr, hash(id, 1) * TAU, 0, 0); ctx.fill(); ctx.stroke();
-          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.4 * out;
-          poly(6, rr * 0.55, hash(id, 1) * TAU, 0, 0); ctx.stroke();
+          const rot = hash(num(f.id, 1), 1) * TAU;
+          ctx.save(); ctx.translate(x, y);
+          glow(0, 0, r * 1.6, c, 0.12 * out * rise);
+          ctx.fillStyle = '#000'; ctx.globalAlpha = 0.35 * out * rise;
+          ctx.beginPath(); ctx.ellipse(0, r * 0.5, r * 1.1, r * 0.5, 0, 0, TAU); ctx.fill();
+          if (rise < 1) {
+            // reveal from the ground up while the pillar pushes out of the floor
+            ctx.beginPath(); ctx.rect(-r * 2, r * 1.2 - rise * r * 2.6, r * 4, r * 2.6); ctx.clip();
+            ctx.translate(0, (1 - rise) * r * 0.7);
+          }
+          ctx.globalAlpha = out; ctx.fillStyle = '#2b2e38'; ctx.strokeStyle = '#8d93a3'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+          poly(6, r, rot, 0, 0); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#5a6070'; ctx.globalAlpha = 0.9 * out;
+          poly(6, r * 0.58, rot, 0, 0); ctx.fill();
+          ctx.fillStyle = '#7d8495'; ctx.globalAlpha = 0.55 * out;
+          ctx.beginPath(); ctx.arc(-r * 0.12, -r * 0.14, r * 0.28, 0, TAU); ctx.fill();
           ctx.globalAlpha = (0.55 + 0.3 * Math.sin(t * 10)) * out; ctx.strokeStyle = HOSTILE; ctx.lineWidth = 2;
           ctx.setLineDash(DASH); ctx.lineDashOffset = -t * 24;
-          ctx.beginPath(); ctx.arc(0, 0, rr + 8, 0, TAU); ctx.stroke(); ctx.setLineDash(NODASH);
+          ctx.beginPath(); ctx.arc(0, 0, r + 8, 0, TAU); ctx.stroke(); ctx.setLineDash(NODASH);
           ctx.restore(); ctx.globalAlpha = 1;
           break;
         }
@@ -1292,8 +1304,17 @@ export function createRenderer(canvas) {
         const f = clamp(num(boss.hp, 0) / (num(boss.maxHp, 1) || 1), 0, 1);
         bossGhost += (f - bossGhost) * Math.min(1, dt * 2.5); if (bossGhost < f) bossGhost = f;
         const bw = 700, bx = (W - bw) / 2, by = bossBarY(), bh = 18, c = col(boss.element);
+        // Fade the bar while the boss (with its telegraphs) or the player is close under it, so it
+        // never hides the fight. Distance from the bar's rectangle (label included), smooth lerp.
+        const nearBar = (x, y, rad) => {
+          const dx = Math.max(bx - 4 - x, 0, x - (bx + bw + 4)), dy = Math.max(by - 4 - y, 0, y - (by + bh + 30));
+          return Math.hypot(dx, dy) - rad < 130;
+        };
+        const crowded = nearBar(num(boss.x, -1e4), num(boss.y, -1e4), num(boss.r, 50)) || (pl && nearBar(num(pl.x, -1e4), num(pl.y, -1e4), num(pl.r, 16)));
+        bossBarA += ((crowded ? 0.35 : 1) - bossBarA) * Math.min(1, dt * 6);
+        ctx.globalAlpha = bossBarA;
         ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(bx - 4, by - 4, bw + 8, bh + 8);
-        ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.45; ctx.fillRect(bx, by, bw * bossGhost, bh); ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.45 * bossBarA; ctx.fillRect(bx, by, bw * bossGhost, bh); ctx.globalAlpha = bossBarA;
         ctx.fillStyle = c; ctx.fillRect(bx, by, bw * f, bh);
         ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(bx, by, bw * f, bh * 0.35);
         ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.strokeRect(bx - 4, by - 4, bw + 8, bh + 8);
@@ -1301,8 +1322,9 @@ export function createRenderer(canvas) {
         ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineJoin = 'round';
         const label = 'ELEMENTAL TITAN \u00b7 ' + String(boss.element || '').toUpperCase();
         ctx.strokeText(label, W / 2, by + bh + 9); ctx.fillStyle = c; ctx.fillText(label, W / 2, by + bh + 9);
-      } else bossGhost = 1;
-    } else bossGhost = 1;
+        ctx.globalAlpha = 1;
+      } else { bossGhost = 1; bossBarA = 1; }
+    } else { bossGhost = 1; bossBarA = 1; }
 
     if (flashA > 0.005) {
       ctx.globalAlpha = Math.min(0.7, flashA); ctx.fillStyle = flashColor; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;

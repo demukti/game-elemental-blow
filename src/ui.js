@@ -514,6 +514,10 @@ export function createUI(callbacks) {
         setCls('fdtl', tl, 'faded', under(tl));
         setCls('fdtr', tr, 'faded', under(tr));
         setCls('fdbc', bc, 'faded', under(bc));
+        // Soften the top and bottom strips while the player fights near those edges, so enemies
+        // under the HP card or the element slots stay visible (world units, 1600x900 arena).
+        setCls('nrt', hud, 'near-top', p.y < 110);
+        setCls('nrb', hud, 'near-bottom', p.y > 900 - 110);
       }
 
       // HP
@@ -622,8 +626,13 @@ export function createUI(callbacks) {
             banner('WAVE CLEARED', 'clear', 1800);
             break;
           case 'blowReady':
-            banner('BLOW READY', 'ready', 1400);
+            // no stacking under a wave / boss banner; the meter itself says READY
+            if (!banners.querySelector('.banner.wave, .banner.clear, .banner.boss, .banner.warn')) banner('BLOW READY', 'ready', 1400);
             flashScreen('rgba(255,240,170,.35)');
+            break;
+          case 'blow':
+            // the nova fired: a lingering READY banner would be stale
+            banners.querySelectorAll('.banner.ready').forEach((b) => b.remove());
             break;
           case 'bossSpawn':
             banner('WARNING', 'warn', 2600);

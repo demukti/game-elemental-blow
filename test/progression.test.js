@@ -147,6 +147,21 @@ test('the player can die: phase gameover with a gameOver event, then the sim fre
   assert.equal(g.events.length, 0);
 });
 
+test('hp zeroed from outside (console) ends the run like a lethal hit, never an immortal zombie', () => {
+  const g = createGame(5);
+  update(g, IDLE, STEP);
+  assert.equal(g.phase, 'playing');
+  g.player.hp = 0;
+  const t = g.time;
+  update(g, IDLE, STEP);
+  assert.equal(g.phase, 'gameover');
+  assert.equal(g.player.hp, 0);
+  assert.deepEqual(g.events, [{ type: 'gameOver', score: g.score, wave: g.wave }]);
+  update(g, { ...IDLE, fire: true }, STEP);
+  assert.equal(g.time, t, 'frozen afterwards');
+  assert.equal(g.events.length, 0);
+});
+
 test('wave 1 is easy: the simple bot clears it without dying', () => {
   for (const seed of [1, 2, 3, 4, 5]) {
     const g = createGame(seed);

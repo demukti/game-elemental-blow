@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createGame, update, spawnEnemy } from '../src/sim.js';
-import { BOSS, CAPS, ELEMENTS, PLAYER } from '../src/config.js';
+import { applyUpgrade, createGame, update, spawnEnemy } from '../src/sim.js';
+import { ARENA, BOSS, CAPS, ELEMENTS, ENEMIES, PLAYER } from '../src/config.js';
 import { IDLE, STEP, botInput, findNonFinite } from './helpers.js';
 
 const SIGNATURE = { fire: 'meteor', water: 'tide', earth: 'quake', air: 'gale' };
@@ -310,6 +310,7 @@ test('phase 2 echo turrets: capped, stationary, short-lived, and cleaned up with
     assert.equal(t.type, 'spitter');
     assert.equal(t.element, b.element);
     assert.ok(t._minion && t._speed === 0 && t.life <= BOSS.echo.life && t.life > 0);
+    assert.equal(t._boltDmg, b._boltDmg, 'an echo turret fires bolts of the boss\'s own damage, not a wave-scaled spitter\'s');
   }
   const minions = () => g.enemies.filter((e) => e._minion).length;
   assert.ok(minions() <= BOSS.maxMinions);
@@ -410,4 +411,75 @@ test('hazards die with the boss: meteors still in the air neither detonate nor l
   assert.equal(g.effects.filter((f) => f._hazard || f.kind === 'meteor' || f.kind === 'burnpatch').length, 0);
   const after = run(g, () => false, 60 * 2, () => ({ ...IDLE, aimX: p.x, aimY: p.y }));
   assert.ok(!after.some((e) => e.type === 'playerHit'), 'nothing hurts the player after the boss is dead');
+});
+
+/** Jump a fresh game to the start of wave `n` without playing (the upgrade phase re-plans the next wave). */
+function atWave(seed, n) {
+  const g = createGame(seed);
+  for (let w = 1; w < n; w++) {
+    g.phase = 'upgrade';
+    g.player.upgrades = [];
+    assert.equal(applyUpgrade(g, 'swift'), true);
+  }
+  return g;
+}
+
+test('boss tuning: the first boss hits softer, the escort grows per boss, the arrival point clears the HP bar, and a winded boss is safe to touch', () => {
+  // damage: (1 + dmgPerWave * (wave - 1)) * firstBoss on wave 5, no firstBoss factor from the second boss on
+  const first = bossArena('fire', { wave: 5 });
+  const second = bossArena('fire', { wave: 10 });
+  assert.ok(Math.abs(first.b._boltDmg - ENEMIES.boss.boltDmg * (1 + BOSS.dmgPerWave * 4) * BOSS.firstBoss) < 1e-9, `first boss bolt ${first.b._boltDmg}`);
+  assert.ok(Math.abs(first.b._dmg - ENEMIES.boss.dmg * (1 + BOSS.dmgPerWave * 4) * BOSS.firstBoss) < 1e-9);
+  assert.ok(Math.abs(second.b._boltDmg - ENEMIES.boss.boltDmg * (1 + BOSS.dmgPerWave * 9)) < 1e-9, `second boss bolt ${second.b._boltDmg}`);
+  assert.ok(second.b.maxHp > first.b.maxHp, 'later bosses have more HP');
+  // escort: (k - 1) * escort.perBoss bodies, every escort.spitterEvery-th a spitter, the rest grunts
+  for (const [wave, k] of [[5, 1], [10, 2], [15, 3]]) {
+    const q = atWave(3, wave)._queue;
+    assert.equal(q[0].type, 'boss', `wave ${wave} opens with the boss`);
+    const escorts = q.slice(1);
+    assert.equal(escorts.length, (k - 1) * BOSS.escort.perBoss, `wave ${wave}: escort size`);
+    assert.equal(escorts.filter((e) => e.type === 'spitter').length, Math.floor(escorts.length / BOSS.escort.spitterEvery), `wave ${wave}: spitters`);
+    assert.ok(escorts.every((e) => e.type === 'spitter' || e.type === 'grunt'));
+  }
+  // arrival: centred, BOSS.spawnY from the top (under the HP bar, not inside it)
+  const g = atWave(3, 5);
+  g.waveInfo.countdown = STEP; // the countdown ticking to 0 is what starts the wave
+  run(g, (s) => s.enemies.some((e) => e.type === 'boss'), 60 * 5);
+  const b = boss(g);
+  assert.ok(b, 'boss spawned');
+  assert.equal(b.x, ARENA.w / 2);
+  assert.equal(b.y, BOSS.spawnY);
+  assert.ok(BOSS.spawnY >= ENEMIES.boss.r + 150, 'spawn point sits well below the HUD strip');
+  // stalking inside the HUD strip drifts down; stalking below it does not
+  const high = bossArena('fire', { by: 100, px: 100, py: 100 });
+  high.b._aiT = 5;
+  update(high.g, IDLE, STEP);
+  assert.ok(high.b._my >= high.b._speed * 0.5 - 1e-9, `drifts down inside the strip (my ${high.b._my})`);
+  const low = bossArena('fire', { by: 400, px: 100, py: 400 });
+  low.b._aiT = 5;
+  update(low.g, IDLE, STEP);
+  assert.ok(low.b._my <= 1e-9, `no downward bias below the strip (my ${low.b._my})`);
+  // winded: standing against the boss costs nothing; once it recovers, contact hurts again
+  const w = bossArena('fire');
+  w.b._ai = 'winded';
+  w.b._aiT = 1;
+  w.b.winded = 1;
+  w.b._atkCd = 0;
+  w.p.x = w.b.x;
+  w.p.y = w.b.y + w.b.r + w.p.r - 2;
+  const ev = [];
+  for (let i = 0; i < 30; i++) {
+    update(w.g, IDLE, STEP);
+    ev.push(...w.g.events);
+  }
+  assert.ok(!sawDamage(ev), 'no contact damage while winded');
+  assert.equal(w.b.winded > 0 && w.b._ai, 'winded');
+  w.b._ai = 'move';
+  w.b._aiT = 5;
+  w.b.winded = 0;
+  w.b._atkCd = 0;
+  w.p.x = w.b.x;
+  w.p.y = w.b.y + w.b.r + w.p.r - 2;
+  const ev2 = run(w.g, (s, e) => sawDamage(e), 30);
+  assert.ok(sawDamage(ev2), 'contact hurts once the boss has recovered');
 });
