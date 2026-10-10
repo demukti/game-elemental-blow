@@ -34,6 +34,7 @@ Runs `node --test` over `test/` (simulation rules, wave progression, determinism
 | Blow ultimate (needs full meter) | Space |
 | Pause / resume | P or Esc |
 | Mute | M |
+| Full screen (Esc leaves it) | F or the corner button |
 
 Menus: Enter or Space starts, Enter resumes, R or Enter restarts after game over, Esc returns to the menu.
 

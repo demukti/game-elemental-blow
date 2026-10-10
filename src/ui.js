@@ -65,6 +65,7 @@ const CONTROLS = [
   [['Space'], 'Blow (ultimate)'],
   [['P'], 'Pause'],
   [['M'], 'Mute'],
+  [['F'], 'Full screen'],
 ];
 
 function controlsList(cls, rows) {

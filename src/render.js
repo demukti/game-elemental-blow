@@ -937,7 +937,8 @@ export function createRenderer(canvas) {
   // ---------- sizing ----------
   function resize() {
     bossBarAt = -1;
-    dpr = Math.min(3, window.devicePixelRatio || 1);
+    // Cap at 2: a 3x backing store is over twice the pixels per frame for no visible gain.
+    dpr = Math.min(2, window.devicePixelRatio || 1);
     cssW = Math.max(1, window.innerWidth); cssH = Math.max(1, window.innerHeight);
     canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr);
     canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';

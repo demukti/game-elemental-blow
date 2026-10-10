@@ -103,6 +103,7 @@ let muted = storageGet(MUTE_KEY) === '1';
 // same keypress (e.g. Esc on the pause screen) cannot immediately undo it.
 let keyLock = false;
 let pendingScore = null; // finished run waiting for a name on the game-over screen
+let pauseDrawn = false; // the paused frame is on screen; skip redraws until resume or resize
 
 const ui = createUI({
   onStart: () => startGame(),
@@ -165,6 +166,7 @@ function startGame() {
 function pause() {
   if (app !== 'playing') return;
   app = 'paused';
+  pauseDrawn = false;
   input.setActive(false);
   safe('audio.stopMusic', () => audio.stopMusic());
   safe('ui.showPause', () => ui.showPause());
@@ -263,7 +265,13 @@ window.addEventListener(
   'keydown',
   (e) => {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.code === 'KeyP' || e.code === 'Escape') {
+    if (e.code === 'Escape' && fullscreen.active()) {
+      // Esc leaves full screen first (the browser does this itself too). Leaving full screen
+      // mid-run pauses via the fullscreenchange handler, so no need to pause here as well.
+      e.preventDefault();
+      fullscreen.exit();
+      lockKeys();
+    } else if (e.code === 'KeyP' || e.code === 'Escape') {
       if (app === 'playing') {
         e.preventDefault();
         pause();
@@ -275,6 +283,9 @@ window.addEventListener(
       }
     } else if (e.code === 'KeyM' && !(e.target instanceof HTMLInputElement)) {
       setMuted(!muted);
+      lockKeys();
+    } else if (e.code === 'KeyF' && !(e.target instanceof HTMLInputElement)) {
+      fullscreen.toggle();
       lockKeys();
     }
   },
@@ -294,9 +305,57 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) pause();
 });
 
-const onResize = () => safe('renderer.resize', () => renderer.resize());
+const onResize = () => {
+  pauseDrawn = false; // resizing clears the canvas
+  safe('renderer.resize', () => renderer.resize());
+};
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);
+
+// ---------------------------------------------------------------------------
+// Full screen: corner button or F enters; Esc (ours or the browser's own) leaves.
+// ---------------------------------------------------------------------------
+const fullscreen = (() => {
+  const doc = document;
+  const el = doc.documentElement;
+  const button = doc.getElementById('fullscreen');
+  const supported = !!(el.requestFullscreen || el.webkitRequestFullscreen) && (doc.fullscreenEnabled !== false);
+  const active = () => !!(doc.fullscreenElement || doc.webkitFullscreenElement);
+  const enter = () => {
+    try {
+      const p = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* ignore */ }
+  };
+  const exit = () => {
+    if (!active()) return;
+    try {
+      const p = doc.exitFullscreen ? doc.exitFullscreen() : doc.webkitExitFullscreen();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* ignore */ }
+  };
+  const toggle = () => (active() ? exit() : enter());
+
+  const onChange = () => {
+    const on = active();
+    el.classList.toggle('is-fullscreen', on);
+    if (button) button.title = on ? 'Leave full screen (Esc)' : 'Full screen (F)';
+    // Leaving full screen mid-run (Esc, or the browser's own exit) pauses, like Esc always does.
+    if (!on && app === 'playing') pause();
+    onResize();
+  };
+  doc.addEventListener('fullscreenchange', onChange);
+  doc.addEventListener('webkitfullscreenchange', onChange);
+
+  if (!supported) el.classList.add('no-fullscreen');
+  if (button) {
+    button.addEventListener('click', () => {
+      button.blur();
+      toggle();
+    });
+  }
+  return { active, enter, exit, toggle };
+})();
 
 // ---------------------------------------------------------------------------
 // Main loop: fixed 1/60 s simulation steps with an accumulator, render once per frame.
@@ -328,8 +387,11 @@ function frame(now) {
     else if (state.phase === 'gameover') enterGameOver();
   }
 
+  // Nothing changes while paused: draw the paused frame once, then idle until resume or resize.
+  if (app === 'paused' && pauseDrawn) return;
   safe('renderer.render', () => renderer.render(state, app === 'paused' ? 0 : dt));
   if (state && app !== 'menu') safe('ui.updateHUD', () => ui.updateHUD(state));
+  pauseDrawn = app === 'paused';
 }
 
 // Debug / automation handle (read-only view).
