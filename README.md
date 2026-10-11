@@ -37,9 +37,9 @@ Runs `node --test` over `test/` (simulation rules, wave progression, determinism
 | Pause / resume | P or Esc |
 | Field manual (pauses a run) | H, or the Manual button on the menu and pause screens |
 | Mute | M |
-| Full screen (Esc leaves it) | F or the corner button |
+| Full screen (Esc leaves it) | Alt+Enter or the corner button |
 
-Menus: Enter or Space starts, Enter resumes, R or Enter restarts after game over, Esc returns to the menu.
+Menus: Enter or Space starts, Enter resumes, R or Enter restarts after game over, Esc returns to the menu. On the pause screen R restarts and Q quits only on a second press, since both are combat keys; closing or reloading the tab mid-run asks first.
 
 The in-game **Field Manual** (H) explains every mechanic and on-screen cue in detail: what each ring around the player means, dash and perfect dodge rules, the nova by element, enemy and Titan patterns, wave pacing, scoring and exact upgrade stacking. It is built by `src/manual.js` from the tuning tables, so its numbers follow `src/config.js`.
 

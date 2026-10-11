@@ -522,9 +522,9 @@ function secControls() {
     ['Pause / resume', `${k('P')} or ${k('Esc')}`],
     ['This manual', `${k('H')} (in a run it pauses first), or the Manual button on the menu and pause screens`],
     ['Mute', k('M')],
-    ['Full screen', `${k('F')} or the corner button (${k('Esc')} leaves it)`],
+    ['Full screen', `${k('Alt+Enter')} or the corner button (${k('Esc')} leaves it)`],
     ['Menu', `${k('Enter')} or ${k('Space')} starts`],
-    ['Pause screen', `${k('Enter')} resumes, ${k('R')} restarts, ${k('Q')} quits to the menu`],
+    ['Pause screen', `${k('Enter')} resumes, ${k('R')} twice restarts, ${k('Q')} twice quits to the menu (the first press asks; a click acts at once)`],
     ['Upgrade screen', `${k('1')}, ${k('2')} or ${k('3')} picks a card`],
     ['Game over', `${k('Enter')} or ${k('R')} plays again, ${k('Esc')} goes to the menu`],
   ]);
@@ -566,7 +566,7 @@ export function manualHTML() {
 /**
  * Mount the manual overlay. Returns { open, close, isOpen }.
  * While it is open its capture-phase key handler (register it before the app's own key handlers)
- * closes it on Esc or H and keeps every other key except M (mute) and F (full screen) away from
+ * closes it on Esc or H and keeps every other key except M (mute) and Alt+Enter (full screen) away from
  * the screen underneath, so Enter / R / Q / 1-3 can't start, restart or pick anything behind it.
  */
 export function createManual(host) {
@@ -643,7 +643,7 @@ export function createManual(host) {
       if (!e.repeat) hide();
       return;
     }
-    if (e.code === 'KeyM' || e.code === 'KeyF') return;
+    if (e.code === 'KeyM' || (e.altKey && (e.code === 'Enter' || e.code === 'NumpadEnter'))) return;
     e.stopImmediatePropagation(); // no preventDefault: scrolling keys keep working
   }, true);
 

@@ -314,6 +314,7 @@ kbd {
 @keyframes breathe { 50% { box-shadow: 0 0.25em 0 #2c1a73, 0 0 2.4em rgba(160, 120, 255, 0.75); } }
 .btn-col { display: flex; flex-direction: column; gap: 0.7em; margin: 0.6em 0 1.4em; }
 .btn-col .btn { justify-content: space-between; }
+.btn.armed { color: var(--danger); border-color: var(--danger); box-shadow: 0 0.25em 0 rgba(0, 0, 0, 0.35), 0 0 1.2em rgba(255, 77, 94, 0.45); }
 .btn-row { display: flex; gap: 0.9em; justify-content: center; margin-top: 1.4em; }
 
 /* controls list */

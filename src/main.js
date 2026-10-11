@@ -332,7 +332,16 @@ function lockKeys() {
 window.addEventListener(
   'keydown',
   (e) => {
-    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.repeat || e.ctrlKey || e.metaKey) return;
+    if (e.altKey) {
+      // Alt+Enter, the usual PC-game toggle. A bare F sat next to WASD and got hit mid-fight.
+      if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+        e.preventDefault();
+        fullscreen.toggle();
+        lockKeys();
+      }
+      return;
+    }
     if (e.code === 'Escape' && fullscreen.active()) {
       // Esc leaves full screen first (the browser does this itself too). Leaving full screen
       // mid-run pauses via the fullscreenchange handler, so no need to pause here as well.
@@ -358,9 +367,6 @@ window.addEventListener(
     } else if (e.code === 'KeyM' && !(e.target instanceof HTMLInputElement)) {
       setMuted(!muted);
       lockKeys();
-    } else if (e.code === 'KeyF' && !(e.target instanceof HTMLInputElement)) {
-      fullscreen.toggle();
-      lockKeys();
     }
   },
   true, // capture: runs before any UI key handlers
@@ -378,6 +384,12 @@ window.addEventListener('blur', () => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) pause();
 });
+// Ctrl+W / Cmd+W sit next to Shift and Space: closing or reloading mid-run asks first.
+window.addEventListener('beforeunload', (e) => {
+  if (botMode || (app !== 'playing' && app !== 'paused' && app !== 'upgrade')) return;
+  e.preventDefault();
+  e.returnValue = true; // older browsers only prompt when this is set
+});
 
 const onResize = () => {
   pauseDrawn = false; // resizing clears the canvas
@@ -387,7 +399,7 @@ window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);
 
 // ---------------------------------------------------------------------------
-// Full screen: corner button or F enters; Esc (ours or the browser's own) leaves.
+// Full screen: corner button or Alt+Enter toggles; Esc (ours or the browser's own) leaves.
 // ---------------------------------------------------------------------------
 const fullscreen = (() => {
   const doc = document;
@@ -413,7 +425,7 @@ const fullscreen = (() => {
   const onChange = () => {
     const on = active();
     el.classList.toggle('is-fullscreen', on);
-    if (button) button.title = on ? 'Leave full screen (Esc)' : 'Full screen (F)';
+    if (button) button.title = on ? 'Leave full screen (Esc)' : 'Full screen (Alt+Enter)';
     // Leaving full screen mid-run (Esc, or the browser's own exit) pauses, like Esc always does.
     if (!on && app === 'playing') pause();
     onResize();

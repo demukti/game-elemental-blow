@@ -67,7 +67,7 @@ const CONTROLS = [
   [['P'], 'Pause'],
   [['H'], 'Manual'],
   [['M'], 'Mute'],
-  [['F'], 'Full screen'],
+  [['Alt+Enter'], 'Full screen'],
 ];
 
 function controlsList(cls, rows) {
@@ -252,14 +252,22 @@ export function createUI(callbacks) {
 
   // PAUSE
   const pause = makeOverlay('pause', 'pause');
+  // Restart (R) and Quit (Q) sit on the combat keys, and a pause can come unasked (focus loss, Esc
+  // out of full screen), so from the keyboard they take a second press. A click acts at once.
+  const confirmable = {};
   {
     const box = h('div', 'panel dialog');
     box.appendChild(h('h2', 'ov-title', 'PAUSED'));
     const btns = h('div', 'btn-col');
+    const confirmed = (name, label, key, again, handler) => {
+      const b = button(label, '', key, handler);
+      confirmable[name] = { b, lbl: b.firstChild, label, again };
+      return b;
+    };
     btns.append(
       button('Resume', 'primary', 'ENTER', () => call('onResume')),
-      button('Restart', '', 'R', () => call('onRestart')),
-      button('Quit to menu', '', 'Q', () => call('onQuitToMenu')),
+      confirmed('restart', 'Restart', 'R', 'Press R again to restart', () => call('onRestart')),
+      confirmed('quit', 'Quit to menu', 'Q', 'Press Q again to quit', () => call('onQuitToMenu')),
       button('Manual', '', 'H', () => call('onOpenManual')),
       muteButton()
     );
@@ -397,7 +405,38 @@ export function createUI(callbacks) {
 
   root.append(hud, banners, flash, menu, upgrade, pause, over);
 
+  // pause screen: which of Restart / Quit waits for its confirming key press
+  let armed = null;
+  let armedAt = 0;
+  let armTimer = 0;
+  function disarm() {
+    clearTimeout(armTimer);
+    if (armed) {
+      const c = confirmable[armed];
+      c.lbl.textContent = c.label;
+      c.b.classList.remove('armed');
+    }
+    armed = null;
+  }
+  // The first press arms; a second one 0.3-2.5 s later confirms. Mashing (cycling with Q, say)
+  // keeps re-arming and never confirms.
+  function confirmKey(name, now) {
+    if (armed === name && now - armedAt >= 300) {
+      disarm();
+      return true;
+    }
+    disarm();
+    armed = name;
+    armedAt = now;
+    const c = confirmable[name];
+    c.lbl.textContent = c.again;
+    c.b.classList.add('armed');
+    armTimer = setTimeout(disarm, 2500);
+    return false;
+  }
+
   function setOverlay(name) {
+    disarm();
     current = name;
     for (const k in overlays) overlays[k].hidden = (k !== name);
     root.classList.toggle('has-overlay', !!name);
@@ -424,7 +463,10 @@ export function createUI(callbacks) {
     seenState = false;
     setOverlay('menu');
   }
-  function showPause() { setOverlay('pause'); }
+  function showPause() {
+    lockUntil = performance.now() + 600; // Q/R still being tapped for combat can't start a confirm
+    setOverlay('pause');
+  }
   function showGameOver(r) {
     r = r || {};
     lockUntil = performance.now() + 600; // a held key from gameplay can't skip the screen
@@ -518,8 +560,8 @@ export function createUI(callbacks) {
       case 'pause':
         if (k === 'Enter') call('onResume');
         else if (k === 'h' || k === 'H') call('onOpenManual');
-        else if (k === 'r' || k === 'R') call('onRestart');
-        else if (k === 'q' || k === 'Q') call('onQuitToMenu');
+        else if (k === 'r' || k === 'R') { if (now >= lockUntil && confirmKey('restart', now)) call('onRestart'); }
+        else if (k === 'q' || k === 'Q') { if (now >= lockUntil && confirmKey('quit', now)) call('onQuitToMenu'); }
         else handled = false;
         break;
       case 'gameover':
