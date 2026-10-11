@@ -557,6 +557,8 @@ kbd {
 #fullscreen .fs-exit, html.is-fullscreen #fullscreen .fs-enter { display: none; }
 html.is-fullscreen #fullscreen .fs-exit { display: block; }
 html.no-fullscreen #fullscreen { display: none; }
+/* the manual fills the screen and its corner would sit under the button (Alt+Enter still works) */
+#ui:has(> .manual:not([hidden])) ~ #fullscreen { display: none; }
 
 /* ============================================================ small windows */
 @media (max-width: 900px) {

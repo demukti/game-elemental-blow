@@ -97,6 +97,9 @@ export function createUI(callbacks) {
   let lastUpgrades = null;
   let currentChoices = [];
   let namePending = false; // game over: waiting for a high-score name
+  let nameRank = -1; // game over: the run's place on this device's board (-1: not on it)
+  let nameToFriends = false; // game over: the name goes to the friends board
+  let nameFilter = null; // game over: drops characters the friends board refuses
   const muteButtons = [];
   let mutedNow = false;
   try { mutedNow = localStorage.getItem('elemental-blow-muted') === '1'; } catch (e) { /* ignore */ }
@@ -311,6 +314,18 @@ export function createUI(callbacks) {
     ov.name.addEventListener('keydown', (e) => {
       if (performance.now() < lockUntil || (e.repeat && e.key.length === 1)) e.preventDefault();
     });
+    // with the friends board on, characters it refuses never appear: the name shown is the name saved
+    const filterName = (e) => {
+      if (!nameFilter || (e && e.isComposing)) return;
+      const v = ov.name.value;
+      const clean = nameFilter(v);
+      if (clean === v) return;
+      const at = nameFilter(v.slice(0, ov.name.selectionStart ?? v.length)).length;
+      ov.name.value = clean;
+      ov.name.setSelectionRange(at, at);
+    };
+    ov.name.addEventListener('input', filterName);
+    ov.name.addEventListener('compositionend', () => filterName());
     const entryRow = h('div', 'name-row');
     entryRow.append(ov.name, button('Save', 'primary', 'ENTER', () => commitName()));
     ov.entry.append(ov.entryLabel, entryRow);
@@ -392,6 +407,13 @@ export function createUI(callbacks) {
       b.fMe = data.me || null;
     }
     paintBoard(which);
+    if (which === 'gameover' && namePending) ov.entryLabel.textContent = entryLabel();
+  }
+  // Game-over name prompt: the friends board while it is reachable, otherwise this device's board.
+  function entryLabel() {
+    if (nameToFriends && boards.gameover.friends !== 'error') return 'ENTER YOUR NAME FOR THE FRIENDS BOARD';
+    if (nameRank < 0) return 'FRIENDS BOARD UNREACHABLE: SAVE TO RETRY';
+    return '#' + (nameRank + 1) + (boards.gameover.friends ? ' ON THIS DEVICE! ENTER YOUR NAME' : ' ON THE BOARD! ENTER YOUR NAME');
   }
   // Saves the pending high score under the typed name (a no-op when no entry is pending).
   function commitName() {
@@ -485,11 +507,14 @@ export function createUI(callbacks) {
     boards.gameover.fMe = null;
     setScores(r.scores, -1);
     namePending = rank >= 0 || !!r.askName;
+    nameRank = rank;
+    nameToFriends = !!r.toFriends;
+    nameFilter = typeof r.nameFilter === 'function' ? r.nameFilter : null;
     ov.entry.hidden = !namePending;
     setOverlay('gameover');
     if (namePending) {
-      ov.entryLabel.textContent = r.friends ? 'ENTER YOUR NAME FOR THE FRIENDS BOARD' : '#' + (rank + 1) + ' ON THE BOARD! ENTER YOUR NAME';
-      ov.name.value = r.lastName || '';
+      ov.entryLabel.textContent = entryLabel();
+      ov.name.value = nameFilter ? nameFilter(r.lastName || '') : r.lastName || '';
       ov.name.focus();
       ov.name.select();
     }
