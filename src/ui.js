@@ -224,7 +224,11 @@ export function createUI(callbacks) {
     menu._best = bestEl;
     menu._board = h('section', 'panel scores');
     const row = h('div', 'menu-row');
-    row.append(button('Manual', 'ghost', 'H', () => call('onOpenManual')), muteButton());
+    row.append(
+      button('Manual', 'ghost', 'H', () => call('onOpenManual')),
+      button('Credits', 'ghost', 'C', () => call('onOpenCredits')),
+      muteButton()
+    );
     left.append(title, tag, play, bestEl, menu._board, row);
 
     const right = h('div', 'menu-side');
@@ -550,6 +554,7 @@ export function createUI(callbacks) {
       case 'menu':
         if (k === 'Enter' || k === ' ') call('onStart');
         else if (k === 'h' || k === 'H') call('onOpenManual');
+        else if (k === 'c' || k === 'C') call('onOpenCredits');
         else handled = false;
         break;
       case 'upgrade':

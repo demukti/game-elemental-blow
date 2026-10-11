@@ -501,6 +501,36 @@ kbd {
 @keyframes mpulse { 50% { opacity: 0.35; } }
 @keyframes mblink { 50% { opacity: 0.35; } }
 
+/* credits: one card per cast member, the avatar in their element looking around */
+.m-cast { display: grid; grid-template-columns: repeat(auto-fill, minmax(20em, 1fr)); gap: 1em; margin: 0.6em 0 1.6em; }
+.m-cred {
+  display: grid; grid-template-columns: 6.4em 1fr; gap: 0 0.9em; align-content: start;
+  padding: 0.9em 1.1em 1em 0.7em; border-radius: 1em;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 13%, #151028), #0f0b1d 72%);
+  border: 1px solid color-mix(in srgb, var(--c) 42%, transparent);
+  box-shadow: inset 0 0.15em 0 color-mix(in srgb, var(--c) 16%, transparent);
+}
+.m-cred-av { width: 6.4em; height: 6.4em; overflow: visible; align-self: center; }
+.m-look { transform-box: view-box; transform-origin: 0 0; animation: mlook 7s ease-in-out infinite; }
+@keyframes mlook { 0%, 100% { transform: rotate(-38deg); } 40%, 52% { transform: rotate(16deg); } 70% { transform: rotate(-8deg); } }
+.m-cred header { align-self: center; line-height: 1.2; }
+.m-cred-el { font-size: 0.7em; font-weight: 800; letter-spacing: 0.25em; text-transform: uppercase; color: var(--c); opacity: 0.85; }
+.m-cred-name { font-family: var(--font-display); font-size: 2.3em; letter-spacing: 0.06em; line-height: 1.05; color: var(--c); text-shadow: 0 0.05em 0 #000, 0 0 0.5em color-mix(in srgb, var(--c) 45%, transparent); }
+.m-cred-role { font-weight: 800; color: var(--ink); }
+.m-cred-job { font-size: 0.8em; color: var(--ink-dim); }
+.m-cred p { grid-column: 1 / -1; margin: 0.7em 0 0.6em; font-size: 0.93em; }
+.m-cred-stats { grid-column: 1 / -1; list-style: none; padding: 0; margin: 0 0 0.8em; font-size: 0.88em; }
+.m-sec .m-cred-stats li { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 0 0.4em; margin: 0.1em 0; }
+.m-cred-stats span { color: var(--ink-dim); }
+.m-cred-stats i { border-bottom: 1px dotted rgba(150, 130, 230, 0.35); }
+.m-cred-stats b { font-family: var(--font-display); font-weight: 400; letter-spacing: 0.05em; color: var(--c); }
+.m-cred-stats small { grid-column: 1 / -1; justify-self: end; margin-top: -0.15em; font-size: 0.82em; font-style: italic; color: #8f86b3; }
+.m-cred-vs { grid-column: 1 / -1; padding: 0.5em 0.75em; border-radius: 0.6em; background: rgba(5, 3, 12, 0.5); font-size: 0.88em; line-height: 1.45; }
+.m-cred-vs .m-x { min-width: 0; margin-right: 0.15em; }
+.m-cred-vs div { margin-top: 0.2em; }
+.m-cred-rule { color: var(--ink-dim); font-weight: 700; font-size: 0.9em; }
+.m-cred-end { margin: 0 0 0.4em; text-align: center; font-style: italic; color: var(--ink-dim); }
+
 @media (max-width: 760px) {
   .manual { padding: 0.4em; }
   .manual-main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
@@ -541,5 +571,5 @@ html.no-fullscreen #fullscreen { display: none; }
   .menu-main { gap: 0.7em; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .btn.big, .title .t1, .blow.full .blowbar, .newbest, .countdown, .m-spin, .m-pulse, .m-blink { animation: none; }
+  .btn.big, .title .t1, .blow.full .blowbar, .newbest, .countdown, .m-spin, .m-pulse, .m-blink, .m-look { animation: none; }
 }

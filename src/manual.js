@@ -523,11 +523,59 @@ function secControls() {
     ['This manual', `${k('H')} (in a run it pauses first), or the Manual button on the menu and pause screens`],
     ['Mute', k('M')],
     ['Full screen', `${k('Alt+Enter')} or the corner button (${k('Esc')} leaves it)`],
-    ['Menu', `${k('Enter')} or ${k('Space')} starts`],
+    ['Menu', `${k('Enter')} or ${k('Space')} starts, ${k('C')} opens the ${go('credits', 'credits')}`],
     ['Pause screen', `${k('Enter')} resumes, ${k('R')} twice restarts, ${k('Q')} twice quits to the menu (the first press asks; a click acts at once)`],
     ['Upgrade screen', `${k('1')}, ${k('2')} or ${k('3')} picks a card`],
     ['Game over', `${k('Enter')} or ${k('R')} plays again, ${k('Esc')} goes to the menu`],
   ]);
+}
+
+// One cast member per element. The "2× vs" lines come from BEATS, so the credits obey the cycle too.
+const CAST = [
+  {
+    e: 'fire', name: 'Mauro', role: 'Chief Spark Officer', job: 'The idea · the elementals',
+    blurb: 'The four classical elements had been sitting around unemployed for about 2,500 years. Mauro gave them a job: hitting each other, in a cycle, very hard. Every fireball in here is a small tribute to the spark that started it.',
+    stats: [['Ideas', 'MAX'], ['Elements invented', '4', 'Empedocles claims prior art'], ['Fires started', 'all of them']],
+    vs: 'Every “that will take a while” went up in smoke.',
+  },
+  {
+    e: 'water', name: 'Mukti', role: 'Head of Polish', job: 'Tweaking &amp; tuning · the shine, not the language',
+    blurb: 'Water wears a rock smooth one drop at a time. Mukti did that to this game, one tiny number at a time: play a wave, frown, nudge a cooldown by a twentieth of a second, play it again. The reason it feels good in your hands.',
+    stats: [['Numbers nudged', 'nearly all'], ['Waves replayed', 'lost count'], ['Keys fired', '1', 'F, for going full screen mid-fight']],
+    vs: 'The wilder ideas got gently hosed down until they fit in the arena.',
+  },
+  {
+    e: 'air', name: 'Claude', role: 'Code Wrangler', job: 'Programming · every line, this one too',
+    blurb: 'Lives in the cloud, so Air was the obvious pick. Wrote the code: the simulation, the bots, the Titan, the manual you are reading and this very page, whose first draft was sent back for being too dry. Any bug you find was placed there on purpose, to build character.',
+    stats: [['Lines of code', '7,000-ish'], ['Coffee consumed', '0', 'no mouth'], ['Times told “make it funny”', '1']],
+    vs: 'The Titan’s gale is Claude’s work. Sorry about that.',
+  },
+  {
+    e: 'earth', name: 'You', role: 'Playtester (unpaid)', job: 'Taking hits · getting back up',
+    blurb: 'Solid, stubborn, flattened by a brute and back on your feet before the dust settles: the most Earth thing there is. Without you, all of this is a very elaborate screensaver.',
+    stats: [['Hits taken', 'plenty'], ['“One more run”', '∞'], ['Rage quits', '—', 'we saw nothing']],
+    vs: 'You will find the bug Mukti missed within thirty seconds.',
+  },
+];
+
+function secCredits() {
+  const cards = CAST.map((c, i) => {
+    const col = ELEMENT_COLORS[c.e];
+    const prey = CAST.find((o) => o.e === BEATS[c.e]);
+    const stats = c.stats.map(([key, v, note]) =>
+      `<li><span>${key}</span><i></i><b>${v}</b>${note ? `<small>${note}</small>` : ''}</li>`).join('');
+    return `<article class="m-cred" style="--c:${col}">`
+      + `<svg class="m-cred-av" viewBox="-38 -38 76 76" aria-hidden="true">${glow(col, 44, 0.4)}${motes(c.e)}`
+      + `<g class="m-look" style="animation-delay:${-i * 1.7}s">${avatar(c.e)}</g></svg>`
+      + `<header><div class="m-cred-el">${NAMES[c.e]}</div><div class="m-cred-name">${c.name}</div>`
+      + `<div class="m-cred-role">${c.role}</div><div class="m-cred-job">${c.job}</div></header>`
+      + `<p>${c.blurb}</p><ul class="m-cred-stats">${stats}</ul>`
+      + `<div class="m-cred-vs"><span class="m-x m-x2">2×</span> vs <span class="m-el" style="--c:${ELEMENT_COLORS[prey.e]}">${prey.name}</span>`
+      + `<span class="m-cred-rule"> · ${NAMES[c.e]} beats ${NAMES[prey.e]}</span><div>${c.vs}</div></div></article>`;
+  }).join('');
+  return `<p class="m-lead">Every game needs a cast. This one has one per element, and like everything else in the arena they follow the cycle: check who beats whom.</p>`
+    + `<div class="m-cast">${cards}</div>`
+    + '<p class="m-cred-end">No elementals were harmed in the making of this game.<br>Thousands were harmed while playing it, mostly by you.</p>';
 }
 
 const SECTIONS = [
@@ -547,6 +595,7 @@ const SECTIONS = [
   ['upgrades', 'Upgrades', secUpgrades],
   ['tech', 'Pro techniques', secTech],
   ['controls', 'Controls', secControls],
+  ['credits', 'Credits', secCredits],
 ];
 
 const esc = (s) => s.replace(/&/g, '&amp;');
@@ -564,7 +613,8 @@ export function manualHTML() {
 }
 
 /**
- * Mount the manual overlay. Returns { open, close, isOpen }.
+ * Mount the manual overlay. Returns { open, close, isOpen }; open(id) jumps to that section (the
+ * menu's Credits button) and leaves the reading position for the next plain open() alone.
  * While it is open its capture-phase key handler (register it before the app's own key handlers)
  * closes it on Esc or H and keeps every other key except M (mute) and Alt+Enter (full screen) away from
  * the screen underneath, so Enter / R / Q / 1-3 can't start, restart or pick anything behind it.
@@ -581,6 +631,7 @@ export function createManual(host) {
   const sections = Array.from(ov.querySelectorAll('.m-sec'));
   let open = false;
   let savedTop = 0;
+  let jumped = false; // opened at a section: don't keep that spot as the reading position
 
   function markNav() {
     const top = content.scrollTop + 60;
@@ -606,17 +657,19 @@ export function createManual(host) {
     if (s) content.scrollTop = s.offsetTop - 8; // instant: smooth scrolling across the whole manual drags
   }
 
-  function show() {
+  function show(id) {
     if (open) return;
     open = true;
     ov.hidden = false;
-    content.scrollTop = savedTop; // display:none drops the scroll position
+    jumped = !!id;
+    if (id) goTo(id);
+    else content.scrollTop = savedTop; // display:none drops the scroll position
     content.focus({ preventScroll: true }); // arrow keys, Page Up/Down and Space scroll the text
     markNav();
   }
   function hide() {
     if (!open) return;
-    savedTop = content.scrollTop;
+    if (!jumped) savedTop = content.scrollTop;
     open = false;
     ov.hidden = true;
     content.blur();

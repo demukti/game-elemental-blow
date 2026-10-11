@@ -39,7 +39,7 @@ Runs `node --test` over `test/` (simulation rules, wave progression, determinism
 | Mute | M |
 | Full screen (Esc leaves it) | Alt+Enter or the corner button |
 
-Menus: Enter or Space starts, Enter resumes, R or Enter restarts after game over, Esc returns to the menu. On the pause screen R restarts and Q quits only on a second press, since both are combat keys; closing or reloading the tab mid-run asks first.
+Menus: Enter or Space starts (C opens the credits), Enter resumes, R or Enter restarts after game over, Esc returns to the menu. On the pause screen R restarts and Q quits only on a second press, since both are combat keys; closing or reloading the tab mid-run asks first.
 
 The in-game **Field Manual** (H) explains every mechanic and on-screen cue in detail: what each ring around the player means, dash and perfect dodge rules, the nova by element, enemy and Titan patterns, wave pacing, scoring and exact upgrade stacking. It is built by `src/manual.js` from the tuning tables, so its numbers follow `src/config.js`.
 
@@ -83,7 +83,7 @@ src/input.js            keyboard and mouse -> per-step input object
 src/bot.js              autoplay bot (tests and the ?bot=1 playtest mode)
 src/render.js           canvas drawing, particles, shake
 src/ui.js               menus, HUD, upgrade screen
-src/manual.js           in-game field manual (H), numbers read from config.js
+src/manual.js           in-game field manual (H) and credits (C), numbers read from config.js
 src/audio.js            WebAudio sound and music
 src/board.js            friends board client (?board=CODE, BOARD_URL)
 leaderboard/            scores.php, the friends board server, and its setup guide
@@ -107,3 +107,12 @@ The difficulty curve is the `WAVE` table. A regular wave spends a budget (`budge
 ## Performance
 
 The renderer is fill-rate bound: additive glows, particles and the full-screen floor and vignette passes cost in proportion to the canvas backing store, not the window size. `src/render.js` therefore caps the backing store at 2560x1440 pixels regardless of screen size (a 4K display is upsampled by the browser) and scales it down further while frames run long, creeping back once they recover. Read the current state in the console with `elementalBlow.render` (`quality` 0.55 to 1, `backing` size, `frameMs` average). Adjust `MAX_PIXELS`, `Q_MIN` and the thresholds in `autoQuality` to taste.
+
+## Credits
+
+One per element, as the cycle demands (the in-game version is the last section of the Field Manual, or Credits / C on the menu):
+
+- **Mauro** (Fire): the idea. Took the four classical elements, unemployed for about 2,500 years, and gave them a job.
+- **Mukti** (Water): tweaking, tuning and polish. Wore the game smooth one tiny number at a time.
+- **Claude** (Air): the code. Lives in the cloud; any bug you find is there to build character.
+- **You** (Earth): playtesting, unpaid. Flattened by brutes, back up every time.

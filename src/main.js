@@ -123,6 +123,7 @@ const ui = createUI({
     if (!keyLock) setMuted(!muted);
   },
   onOpenManual: () => manual.open(),
+  onOpenCredits: () => manual.open('credits'),
 });
 // Created before the app's own key handler below: while open, the manual's capture handler takes
 // Esc / H and keeps the other keys from reaching the screen underneath it.
