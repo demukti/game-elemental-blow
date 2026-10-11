@@ -10,7 +10,7 @@ import { createManual } from './manual.js';
 import { audio } from './audio.js';
 import { createInput } from './input.js';
 import { botInput } from './bot.js';
-import { createBoard, boardName } from './board.js';
+import { createBoard, boardName, stripName } from './board.js';
 import { createTouch } from './touch.js';
 
 const STEP = 1 / 60;
@@ -163,6 +163,8 @@ function botFromUrl() {
   }
 }
 const botMode = botFromUrl();
+// A `?seed=` run can be replayed until its spawns are learned by heart, so it stays off the friends board.
+const seeded = seedFromUrl() !== undefined;
 let botRestart = 0; // pending restart timer id
 
 function resetClock() {
@@ -259,12 +261,14 @@ function enterGameOver() {
   const scores = loadScores();
   const rank = scoreRank(scores, state.score);
   // with a friends board every scoring run asks for a name; otherwise only runs that make the local board
-  pendingScore = rank >= 0 || (board.active && state.score > 0) ? { score: state.score, wave: state.wave } : null;
+  const toFriends = board.active && !seeded;
+  pendingScore = rank >= 0 || (toFriends && state.score > 0) ? { score: state.score, wave: state.wave } : null;
   safe('audio.stopMusic', () => audio.stopMusic());
   safe('ui.showGameOver', () =>
     ui.showGameOver({
       score: state.score, wave: state.wave, kills: state.kills, best, isNewBest,
       scores, rank, lastName: storageGet(NAME_KEY) || '', askName: !!pendingScore, friends: board.active,
+      toFriends, nameFilter: toFriends ? stripName : null,
     }),
   );
   if (board.active) showFriends('gameover', board.top());
@@ -273,7 +277,10 @@ function enterGameOver() {
 function submitScore(rawName) {
   if (!pendingScore) return;
   const typed = String(rawName || '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
-  const entry = { name: typed || 'ANON', ...pendingScore };
+  const toFriends = board.active && !seeded;
+  const name = toFriends ? boardName(typed) : ''; // no name typed: nothing goes to the friends board
+  // the board's version of the name on both boards, so one run never shows under two names
+  const entry = { name: (toFriends ? name : typed) || 'ANON', ...pendingScore };
   pendingScore = null;
   storageSet(NAME_KEY, entry.name);
   const scores = loadScores();
@@ -284,8 +291,7 @@ function submitScore(rawName) {
     storageSet(SCORES_KEY, JSON.stringify(scores));
     safe('ui.setScores', () => ui.setScores(scores, rank));
   }
-  const name = boardName(typed); // no name typed: nothing goes to the friends board
-  if (board.active && name) {
+  if (name) {
     safe('ui.setFriends', () => ui.setFriends('gameover', 'loading'));
     showFriends('gameover', board.submit({ name, score: entry.score, wave: entry.wave }));
   }

@@ -12,7 +12,7 @@ npm start
 
 Then open http://localhost:5180/. Set `PORT=8080 npm start` to use another port.
 
-Add `?seed=123` to the URL for a reproducible run (same seed and same inputs give the same game).
+Add `?seed=123` to the URL for a reproducible run (same seed and same inputs give the same game). Seeded runs never go to the friends board, since a fixed seed can be learned by heart.
 
 Add `?bot=1` (or `?bot=simple` for the plain bot) to let the test bot play: it starts from the menu, takes the first upgrade and restarts after game over; its runs are not saved to the high-score board.
 
@@ -40,6 +40,8 @@ Runs `node --test` over `test/` (simulation rules, wave progression, determinism
 | Full screen (Esc leaves it) | Alt+Enter or the corner button |
 
 Menus: Enter or Space starts (C opens the credits), Enter resumes, R or Enter restarts after game over, Esc returns to the menu. On the pause screen R restarts and Q quits only on a second press, since both are combat keys; closing or reloading the tab mid-run asks first.
+
+There are no touch controls yet: on phones and tablets without a trackpad the menu says the game needs a keyboard and mouse (`.touch-note` in `style.css`, shown by a `(pointer: coarse) and (hover: none)` media query).
 
 The in-game **Field Manual** (H) explains every mechanic and on-screen cue in detail: what each ring around the player means, dash and perfect dodge rules, the nova by element, enemy and Titan patterns, wave pacing, scoring and exact upgrade stacking. It is built by `src/manual.js` from the tuning tables, so its numbers follow `src/config.js`.
 
@@ -75,6 +77,8 @@ Between waves you pick 1 of 3 random upgrades (damage per element, speed, cooldo
 
 ```
 index.html, style.css   page shell
+og.jpg                  link preview image (chat apps)
+.htaccess               cache and security headers on an Apache host (shipped in the dist zip)
 server.js               tiny static file server (PORT env, default 5180)
 src/config.js           all constants and tuning tables
 src/sim.js              game rules: pure, deterministic, no DOM or audio
@@ -94,7 +98,7 @@ test/                   node:test suites
 
 **High scores.** A run that makes the top 10 asks for a name on the game-over screen (Enter saves; leaving the screen saves too, as ANON if empty). The board shows on the game-over screen and the top 5 on the menu. It is per browser, not shared online.
 
-**Friends board.** A group can share one online board kept by `leaderboard/scores.php`, a single PHP file next to the game on a PHP host you control; `npm run dist -- CODE HOST` builds a zip of the whole game with it, ready to unpack (setup and security notes are in `leaderboard/README.md`). Once `BOARD_URL` in `src/board.js` points at it (the zip sets `scores.php`), opening the game with `?board=CODE` (a code listed in the script) switches both boards to the group's board (everyone, best first, in a scrolling list), and every scoring run asks for a name. Each name keeps its best run. If the server cannot be reached, the local board shows instead.
+**Friends board.** A group can share one online board kept by `leaderboard/scores.php`, a single PHP file next to the game on a PHP host you control; `npm run dist -- CODE HOST` builds a zip of the whole game with it, ready to unpack (setup and security notes are in `leaderboard/README.md`). Once `BOARD_URL` in `src/board.js` points at it (the zip sets `scores.php`), opening the game with `?board=CODE` (a code listed in the script) switches both boards to the group's board (everyone, best first, in a scrolling list), and every scoring run asks for a name. The name field drops characters the board refuses as they are typed, so a run shows under the same name on both boards. Each name keeps its best run. If the server cannot be reached, the local board shows instead and the name prompt says so.
 
 The browser stores these in `localStorage`: `elemental-blow-best` (best run), `elemental-blow-scores` (top 10 board), `elemental-blow-name` (last name entered), `elemental-blow-board` (friends board code) and `elemental-blow-muted`.
 

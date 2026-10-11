@@ -28,11 +28,17 @@ function readCode() {
   return CODE_RE.test(code) ? code : '';
 }
 
+/** `text` without the characters the board refuses (anything but letters, digits, spaces and . _ ' ! ? -);
+ *  the name field applies it while typing, so the name shown is the name saved. */
+export function stripName(text) {
+  return String(text || '')
+    .normalize('NFC')
+    .replace(/[^\p{L}\p{N} ._'!?-]|[\u115F\u1160\u3164\uFFA0]/gu, ''); // the second set: blank "letters"
+}
+
 /** `name` as the board accepts it (letters, digits, spaces and . _ ' ! ? -, at most 12), or '' if nothing is left. */
 export function boardName(name) {
-  const kept = String(name || '')
-    .normalize('NFC')
-    .replace(/[^\p{L}\p{N} ._'!?-]|[\u115F\u1160\u3164\uFFA0]/gu, '') // the second set: blank "letters"
+  const kept = stripName(name)
     .replace(/ {2,}/g, ' ')
     .trim();
   const cut = Array.from(kept).slice(0, NAME_MAX).join('').trim();
