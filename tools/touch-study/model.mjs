@@ -59,6 +59,10 @@ function gauss(rng) {
  *                   (not after the 4th tap, nor with `immediate`, where each tap after the first applies at
  *                   once), thumb 'right' (lifts off the aim stick: no fire, then `reacquire`) or 'left'
  *                   (lifts off the move stick: no movement). `mistap` is then a miscount by one step.
+ *  circle       {}  four element buttons in a circle on the right: pressing one selects it and turns that
+ *                   touch into the aim stick (fires while held; a switch is lift + press, so `hop` with a
+ *                   fire gap). Earth fires on a tap instead: earthTap s after its cooldown clears, aimed by
+ *                   the prototype's autoAim. (Holding without dragging = auto-aim is set with aim: 'proto'.)
  */
 export const PRESETS = {
   bot: { raw: true },
@@ -315,6 +319,18 @@ export function makeModel(name, overrides = {}, seed = 1) {
           out.aimX = p.x + Math.cos(a) * 200;
           out.aimY = p.y + Math.sin(a) * 200;
         }
+      }
+      // circle scheme: earth is a tap (or a drag released), so it fires once per press, not while held
+      if (P.circle && (out.switchTo || p.element) === 'earth') {
+        const ready = p.cooldowns.earth <= 0;
+        if (!ready) m.earthReadySince = null;
+        else if (m.earthReadySince == null) m.earthReadySince = now;
+        const a = autoAim(state, 'earth', m.protoId || 0);
+        if (a) {
+          out.aimX = a.x;
+          out.aimY = a.y;
+        }
+        out.fire = !!(want.fire && ready && a && a.fire && now - m.earthReadySince >= P.circle.earthTap);
       }
       return out;
     },
