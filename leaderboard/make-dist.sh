@@ -17,14 +17,14 @@ fi
 
 rm -rf dist
 mkdir -p dist/stage/src
-cp index.html style.css dist/stage/
+cp index.html style.css touch.css dist/stage/
 cp src/*.js dist/stage/src/
 sed -i.bak "s|^export const BOARD_URL = '';|export const BOARD_URL = 'scores.php';|" dist/stage/src/board.js
 rm dist/stage/src/board.js.bak
 grep -q "^export const BOARD_URL = 'scores.php';" dist/stage/src/board.js
 sed "s|^const BOARDS = \['change-me'\];|const BOARDS = ['$code'];|" leaderboard/scores.php > dist/stage/scores.php
 grep -q "^const BOARDS = \['$code'\];" dist/stage/scores.php
-(cd dist/stage && zip -qrX ../elemental-blow.zip index.html style.css src scores.php)
+(cd dist/stage && zip -qrX ../elemental-blow.zip index.html style.css touch.css src scores.php)
 rm -rf dist/stage
 
 cat > dist/UPLOAD.txt <<EOF
