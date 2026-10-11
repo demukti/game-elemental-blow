@@ -6,7 +6,7 @@ Without it, or for anyone who opens the game without a board code, the game keep
 
 ## Setup
 
-**Quick way (DirectAdmin, cPanel):** `npm run dist -- CODE HOST` (for example `npm run dist -- wolfpack games.example.com`; a random code is made if you leave it out) builds `dist/elemental-blow.zip`, the whole game ready to unpack: `index.html`, `style.css`, `src/` (with `BOARD_URL` set to `scores.php`) and `scores.php` with the code filled in. `dist/UPLOAD.txt` has step-by-step instructions for that site. Upload the zip into the site's `public_html` with the file manager and Extract it; nothing needs editing. Players open `https://HOST/?board=CODE`. `dist/` is git-ignored because it contains the board code.
+**Quick way (DirectAdmin, cPanel):** `npm run dist -- CODE HOST` (for example `npm run dist -- wolfpack games.example.com`) builds `dist/elemental-blow.zip`, the whole game ready to unpack: `index.html`, `style.css`, `og.jpg`, `src/` (with `BOARD_URL` set to `scores.php`), `scores.php` with the code filled in, and an `.htaccess` that makes browsers check for a newer game on every visit and adds security headers. Left out, CODE and HOST come from the last build in `dist/`, because a new code would cut off every link already shared; the very first build without a code gets a random one. `dist/UPLOAD.txt` has step-by-step instructions for that site. Upload the zip into the site's `public_html` with the file manager and Extract it; nothing needs editing. Players open `https://HOST/?board=CODE`. `dist/` is git-ignored because it contains the board code.
 
 **By hand:**
 

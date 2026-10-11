@@ -1,0 +1,20 @@
+# Elemental Blow: response headers on an Apache host (DirectAdmin, cPanel). `npm run dist` puts this file
+# in the zip next to index.html. Without mod_headers it does nothing. If the site answers "500 Internal
+# Server Error" after an upload, the host forbids these lines here: delete this file and the game still works.
+# scores.php is left out: it sends its own headers.
+<IfModule mod_headers.c>
+  # Revalidate the game files on every visit (an unchanged file costs a short 304 reply), so an update
+  # reaches every player at once and a browser never mixes old and new modules.
+  <FilesMatch "\.(html|js|css)$">
+    Header set Cache-Control "no-cache"
+    Header set X-Content-Type-Options "nosniff"
+  </FilesMatch>
+  # The page: only its own files, its own scores.php and inline styles (the game's SVG and manual use them).
+  # A copy whose BOARD_URL points at another site needs that site in connect-src.
+  <FilesMatch "\.html$">
+    Header set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    Header set X-Frame-Options "DENY"
+    Header set Referrer-Policy "no-referrer"
+    Header set Strict-Transport-Security "max-age=31536000"
+  </FilesMatch>
+</IfModule>

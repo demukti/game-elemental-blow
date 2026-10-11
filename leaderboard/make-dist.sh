@@ -1,15 +1,25 @@
 #!/bin/sh
 # Builds dist/elemental-blow.zip, the whole game ready to unpack into a website's folder: index.html,
-# style.css and src/ (with BOARD_URL set to the scores.php next to them) plus scores.php with the board
-# code filled in, and dist/UPLOAD.txt with step-by-step instructions.
-# Usage: npm run dist [-- CODE [HOST]]   CODE: board code (random if left out); HOST: the site, e.g.
-# games.example.com, used only in UPLOAD.txt.
+# style.css, og.jpg, .htaccess and src/ (with BOARD_URL set to the scores.php next to them) plus scores.php
+# with the board code filled in, and dist/UPLOAD.txt with step-by-step instructions.
+# Usage: npm run dist [-- CODE [HOST]]   CODE: board code; HOST: the site, e.g. games.example.com, used in
+# UPLOAD.txt and the link preview. Left out, both come from the last build (dist/UPLOAD.txt), since a new
+# code cuts off every link already shared; with no last build the code is random.
 # dist/ holds the board code, so it is git-ignored: keep it out of the public repo.
 set -eu
 cd "$(dirname "$0")/.."
 
-code="${1:-eb-$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 6)}"
-host="${2:-YOUR-SITE}"
+prev_code=''
+prev_host=''
+if [ -f dist/UPLOAD.txt ]; then
+  prev_code=$(sed -n 's/^Board code: *//p' dist/UPLOAD.txt | head -n 1)
+  prev_host=$(sed -n "s|^Players' link: *https://\([^/]*\)/.*|\1|p" dist/UPLOAD.txt | head -n 1)
+fi
+if [ -z "${1:-}" ] && [ -n "$prev_code" ]; then
+  echo "Reusing board code $prev_code from the last build (pass a CODE to change it)" >&2
+fi
+code="${1:-${prev_code:-eb-$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 6)}}"
+host="${2:-${prev_host:-YOUR-SITE}}"
 if ! printf '%s' "$code" | grep -Eq '^[a-z0-9-]{3,32}$'; then
   echo "board code: 3 to 32 lowercase letters, digits and dashes" >&2
   exit 1
@@ -17,14 +27,19 @@ fi
 
 rm -rf dist
 mkdir -p dist/stage/src
-cp index.html style.css dist/stage/
+cp index.html style.css og.jpg .htaccess dist/stage/
 cp src/*.js dist/stage/src/
+if [ "$host" != YOUR-SITE ]; then # link previews (chat apps) need the image's full address
+  sed -i.bak "s|content=\"og.jpg\"|content=\"https://$host/og.jpg\"|" dist/stage/index.html
+  rm dist/stage/index.html.bak
+  grep -q "content=\"https://$host/og.jpg\"" dist/stage/index.html
+fi
 sed -i.bak "s|^export const BOARD_URL = '';|export const BOARD_URL = 'scores.php';|" dist/stage/src/board.js
 rm dist/stage/src/board.js.bak
 grep -q "^export const BOARD_URL = 'scores.php';" dist/stage/src/board.js
 sed "s|^const BOARDS = \['change-me'\];|const BOARDS = ['$code'];|" leaderboard/scores.php > dist/stage/scores.php
 grep -q "^const BOARDS = \['$code'\];" dist/stage/scores.php
-(cd dist/stage && zip -qrX ../elemental-blow.zip index.html style.css src scores.php)
+(cd dist/stage && zip -qrX ../elemental-blow.zip index.html style.css og.jpg .htaccess src scores.php)
 rm -rf dist/stage
 
 cat > dist/UPLOAD.txt <<EOF
@@ -44,7 +59,9 @@ Players' link: https://$host/?board=$code
    zips). cgi-bin can stay.
 
 3. Upload elemental-blow.zip there, select it and choose Extract. You get
-   index.html, style.css, scores.php and a src folder. Delete the zip.
+   index.html, style.css, og.jpg, scores.php, a src folder and .htaccess
+   (it tells browsers to check for a newer game on every visit). Delete the
+   zip.
 
 4. Open the players' link above. The menu shows "Friends Board" with
    "No scores yet. Be the first!". Every run that scores asks for a name.
@@ -58,9 +75,10 @@ Players' link: https://$host/?board=$code
 
 Updating the game later
 -----------------------
-Build again with the same code (npm run dist -- $code $host), then upload
-and Extract the new zip over the old files. The scores are outside
-public_html, so they stay.
+Build again with the same code (npm run dist -- $code $host; a plain
+npm run dist reuses it too), then upload and Extract the new zip over the
+old files. The scores are outside public_html, so they stay, and players get
+the new version on their next visit.
 
 
 If something is off
@@ -76,6 +94,11 @@ https://$host/scores.php?board=$code should show the board as text, like
     scores.php is not inside a public_html folder. Open it in the File Manager
     editor and set DATA_DIR near the top to a folder outside public_html, e.g.
     '/home/YOUR-USER/domains/$host/elemental-blow-data'.
+
+"500 Internal Server Error" on every page
+    The host does not allow the .htaccess lines. Delete .htaccess in
+    public_html; the game works without it (browsers may then keep an old
+    version for a while after an update).
 
 "Friends board unreachable right now" in the game
     The game could not load scores.php from its own folder: check the address
