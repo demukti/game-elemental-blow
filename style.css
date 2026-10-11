@@ -343,6 +343,12 @@ kbd {
 }
 @keyframes hue { to { background-position: 200% 0; } }
 .tagline { margin: 0; color: var(--ink-dim); letter-spacing: 0.08em; font-size: 1em; max-width: 32em; }
+.touch-note {
+  display: none; box-sizing: border-box; margin: 0; max-width: min(26em, calc(100vw - 40px)); padding: 0.6em 1em;
+  font-size: max(13px, 1em); line-height: 1.4; color: var(--gold);
+  background: rgba(255, 211, 107, 0.08); border: 1px solid rgba(255, 211, 107, 0.45); border-radius: 0.7em;
+}
+@media (pointer: coarse) and (hover: none) { .touch-note { display: block; } }
 .best { display: flex; gap: 0.6em; align-items: baseline; font-size: 1em; min-height: 1.5em; }
 .best-k { font-weight: 800; letter-spacing: 0.2em; font-size: 0.75em; color: var(--ink-dim); }
 .best-v { font-family: var(--font-display); font-size: 1.5em; color: var(--gold); letter-spacing: 0.06em; }

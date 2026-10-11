@@ -41,6 +41,8 @@ Runs `node --test` over `test/` (simulation rules, wave progression, determinism
 
 Menus: Enter or Space starts (C opens the credits), Enter resumes, R or Enter restarts after game over, Esc returns to the menu. On the pause screen R restarts and Q quits only on a second press, since both are combat keys; closing or reloading the tab mid-run asks first.
 
+There are no touch controls yet: on phones and tablets without a trackpad the menu says the game needs a keyboard and mouse (`.touch-note` in `style.css`, shown by a `(pointer: coarse) and (hover: none)` media query).
+
 The in-game **Field Manual** (H) explains every mechanic and on-screen cue in detail: what each ring around the player means, dash and perfect dodge rules, the nova by element, enemy and Titan patterns, wave pacing, scoring and exact upgrade stacking. It is built by `src/manual.js` from the tuning tables, so its numbers follow `src/config.js`.
 
 ## How it plays

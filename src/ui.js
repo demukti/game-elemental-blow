@@ -222,6 +222,8 @@ export function createUI(callbacks) {
     const title = h('h1', 'title');
     title.innerHTML = '<span class="t1">ELEMENTAL</span><span class="t2">BLOW</span>';
     const tag = h('p', 'tagline', 'Read the elements. Break the cycle. Survive the waves.');
+    // shown by style.css on touch-only devices (phones, tablets without a trackpad): no touch controls yet
+    const touchNote = h('p', 'touch-note', 'Needs a keyboard and mouse for now. Open this link on a computer to play.');
     const play = button('PLAY', 'primary big', 'ENTER', () => call('onStart'));
     const bestEl = h('div', 'best');
     menu._best = bestEl;
@@ -232,7 +234,7 @@ export function createUI(callbacks) {
       button('Credits', 'ghost', 'C', () => call('onOpenCredits')),
       muteButton()
     );
-    left.append(title, tag, play, bestEl, menu._board, row);
+    left.append(title, tag, touchNote, play, bestEl, menu._board, row);
 
     const right = h('div', 'menu-side');
     const cyc = h('section', 'panel cycle');
