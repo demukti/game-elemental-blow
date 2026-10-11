@@ -2,9 +2,11 @@
 
     uv run --with playwright python tools/touch-study/touch_test.py [base_url] [shots_dir]
 
-Needs the game served (PORT=5181 npm start). Emulates Pixel 7 / iPhone 13 landscape and an iPad, checks
-that the stick moves, pads switch (tap and slide), DASH dashes, BLOW fires the nova, pause works, the
-right-side drag aims by hand, auto-fire clears wave 1, and saves screenshots.
+Needs the game served (PORT=5181 npm start). Emulates Pixel 7 / iPhone 13 landscape and an iPad and checks
+the element circle: the stick moves; holding an element button switches to it and attacks (auto-aim held
+still, by hand when dragged) while the circle steps back; nothing fires with the right thumb up; earth
+slams once on a tap, and only on release after a drag; free space keeps the element; a flick on the left
+dashes; DASH, BLOW and pause work; holding the hinted element clears wave 1. Saves screenshots.
 """
 import json
 import sys
@@ -45,6 +47,16 @@ class Fingers:
         x, y = self.pts.pop(fid)
         # CDP touchEnd lists the finger(s) being lifted (probe_cdp.py); the others stay down
         self.cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": [{"x": x, "y": y, "id": fid}]})
+
+
+def fired(page, el, seconds):
+    """Highest cooldown fraction of `el` seen while polling for `seconds`: above 0 means it was cast."""
+    top = 0.0
+    t_end = time.time() + seconds
+    while time.time() < t_end:
+        top = max(top, page.evaluate(f"window.elementalBlow.state.player.cooldowns.{el}"))
+        time.sleep(0.03)
+    return round(top, 2)
 
 
 def center(page, sel):
@@ -112,34 +124,84 @@ def run_device(pw, name, desc, report, fight_seconds=8, clear_wave=False):
         time.sleep(0.02)
     time.sleep(0.8)
     r["stickMovesRight"] = st(page, "p.x") - x0 > 60
-    r["stickVisible"] = page.locator(".t-stick:not(.ghost)").is_visible()
+    r["stickVisible"] = page.locator(".t-stick:not(.ghost):not(.t-aim)").is_visible()
 
-    # 2. second finger taps the water pad while the stick is held
+    # 2. holding the water button switches, attacks and steps the circle back; the move stick keeps working
     wx, wy = center(page, ".t-pad[data-el=water]")
     f.down(2, wx, wy)
-    time.sleep(0.1)
-    f.up(2)
-    time.sleep(0.1)
-    r["tapWater"] = st(page, "p.element") == "water"
+    time.sleep(0.15)
+    r["holdWaterSwitches"] = st(page, "p.element") == "water"
+    r["circleStepsBack"] = "holding" in (page.get_attribute(".t-diamond", "class") or "")
+    r["aimStickShown"] = page.locator(".t-aim").is_visible()
+    r["holdWaterFires"] = fired(page, "water", 0.6) > 0
     x1 = st(page, "p.x")
     time.sleep(0.3)
-    r["stickStillHeldAfterTap"] = st(page, "p.x") - x1 > 20
+    r["moveStickStillWorks"] = st(page, "p.x") - x1 > 20
+    page.screenshot(path=f"{SHOTS}/{name}-6-holding.png")
+    f.up(2)
+    time.sleep(0.1)
+    r["circleBackAfterRelease"] = "holding" not in (page.get_attribute(".t-diamond", "class") or "")
 
-    # 3. slide from the water pad to fire, then to air
-    fx, fy = center(page, ".t-pad[data-el=fire]")
-    ax, ay = center(page, ".t-pad[data-el=air]")
-    f.down(3, wx, wy)
-    for k in range(1, 7):
-        f.move(3, wx + (fx - wx) * k / 6, wy + (fy - wy) * k / 6)
-        time.sleep(0.02)
-    time.sleep(0.08)
-    r["slideToFire"] = st(page, "p.element") == "fire"
-    for k in range(1, 7):
-        f.move(3, fx + (ax - fx) * k / 6, fy + (ay - fy) * k / 6)
-        time.sleep(0.02)
-    time.sleep(0.08)
-    r["slideToAir"] = st(page, "p.element") == "air"
+    # 3. right thumb up: nothing fires (the last element stays)
+    time.sleep(1.4)  # let the water cooldown run out
+    r["noFireWhenUp"] = fired(page, "water", 0.6) == 0
+    r["elementKeptAfterRelease"] = st(page, "p.element") == "water"
+
+    # 3b. earth: a tap slams once; a drag slams only on release, in the dragged direction
+    ex, ey = center(page, ".t-pad[data-el=earth]")
+    f.down(3, ex, ey)
+    time.sleep(0.06)
     f.up(3)
+    r["earthTapSlams"] = fired(page, "earth", 0.3) > 0
+    time.sleep(1.0)  # earth cooldown 0.85 s
+    f.down(3, ex, ey)
+    for k in range(1, 6):
+        f.move(3, ex, ey - k * 9)
+        time.sleep(0.03)
+    r["earthHeldDoesNotSlam"] = fired(page, "earth", 0.5) == 0
+    f.up(3)
+    # read the facing in the frame the slam lands: auto-aim turns the player back right after
+    cd, ang = page.evaluate("""new Promise((res) => {
+      const t0 = performance.now();
+      const tick = () => {
+        const p = window.elementalBlow.state.player;
+        if (p.cooldowns.earth > 0 || performance.now() - t0 > 400) res([p.cooldowns.earth, p.angle]);
+        else requestAnimationFrame(tick);
+      };
+      tick();
+    })""")
+    r["earthReleaseSlams"] = cd > 0
+    r["earthSlamAimedUp"] = -2.2 < ang < -0.9
+
+    # 3c. fire button dragged up: aims by hand and attacks
+    fx, fy = center(page, ".t-pad[data-el=fire]")
+    f.down(3, fx, fy)
+    for k in range(1, 6):
+        f.move(3, fx, fy - k * 9)
+        time.sleep(0.03)
+    r["dragAimsByHand"] = -2.2 < st(page, "p.angle") < -0.9
+    r["dragFires"] = fired(page, "fire", 0.5) > 0
+    f.up(3)
+
+    # 3d. free space on the right: aims and attacks with the element already held
+    time.sleep(1.0)
+    f.down(6, vw * 0.62, vh * 0.35)
+    time.sleep(0.1)
+    r["freeSpaceKeepsElement"] = st(page, "p.element") == "fire"
+    r["freeSpaceFires"] = fired(page, "fire", 0.5) > 0
+    f.up(6)
+    f.up(1)
+
+    # 3e. a quick flick on the left dashes that way
+    time.sleep(1.2)
+    f.down(1, sx, sy)
+    for k in range(1, 3):
+        f.move(1, sx + k * 40, sy)  # a quick flick: two moves, no pause
+    f.up(1)
+    time.sleep(0.15)
+    # by direction, not distance: the player may already stand at the right wall
+    r["flickDashes"] = st(page, "p.dashCd") > 0 and st(page, "p._dashX") > 0.8
+    f.down(1, sx, sy)
 
     # 4. dash
     time.sleep(1.2)  # dash cooldown from nothing; be safe
@@ -171,34 +233,55 @@ def run_device(pw, name, desc, report, fight_seconds=8, clear_wave=False):
     page.evaluate("Object.assign(window.elementalBlow.state.player, { x: 800, y: 450 })")
     time.sleep(0.15)
 
-    # 6. let enemies arrive; auto-fire / auto-aim with the stick circling
+    # 6. let enemies arrive: circle the move stick and hold the hinted element still (auto-aim)
+    def past_upgrade():
+        """The checks above can clear wave 1: pick the first card and play on."""
+        if page.evaluate("window.elementalBlow.app") == "upgrade":
+            r["upgradeScreens"] = r.get("upgradeScreens", 0) + 1
+            if 8 in f.pts:
+                f.up(8)
+            time.sleep(0.7)
+            page.tap(".card >> nth=0")
+            time.sleep(0.3)
+
+    def hold_hint(fid):
+        """Press the button that beats the nearest enemy (the pulsing one), or fire; returns its element."""
+        past_upgrade()
+        el = page.evaluate("(document.querySelector('.t-pad.hint') || {}).dataset?.el || window.elementalBlow.state.player.element")
+        if page.locator(f".t-pad[data-el={el}]").bounding_box() is None:
+            raise RuntimeError(f"no {el} button: " + json.dumps(page.evaluate(
+                "({ app: elementalBlow.app, hp: elementalBlow.state && elementalBlow.state.player.hp, layerHidden: document.getElementById('touch').hidden, vw: innerWidth, vh: innerHeight })")))
+        bx, by = center(page, f".t-pad[data-el={el}]")
+        f.down(fid, bx, by)
+        return el
+
+    past_upgrade()
+    dealt0 = st(page, "s.stats.damageDealt")
     t_end = time.time() + fight_seconds
     f.down(1, sx, sy)
     k = 0
     shot_taken = False
+    held = hold_hint(8)
+    t_switch = time.time() + 1.5
     while time.time() < t_end:
         k += 1
         ang = k * 0.25
         f.move(1, sx + 40 * __import__("math").cos(ang), sy + 40 * __import__("math").sin(ang))
         time.sleep(0.05)
-        if not shot_taken and st(page, "s.enemies.length") >= 2 and time.time() > t_end - fight_seconds / 2:
+        if time.time() > t_switch:
+            f.up(8)
+            held = hold_hint(8)
+            t_switch = time.time() + 1.5
+        fighting = page.evaluate("window.elementalBlow.app") == "playing" and st(page, "s.enemies.length") >= 1
+        if fighting and page.locator(".t-reticle").is_visible():
+            r["reticleShown"] = True
+        if not shot_taken and fighting and st(page, "s.enemies.length") >= 2 and time.time() > t_end - fight_seconds / 2:
             page.screenshot(path=f"{SHOTS}/{name}-2-fight.png")
             shot_taken = True
-    r["autoFireDamage"] = round(st(page, "s.stats.damageDealt"))
-    r["reticleShown"] = page.locator(".t-reticle").is_visible()
+    r.setdefault("reticleShown", False)
+    r["holdStillDamage"] = round(st(page, "s.stats.damageDealt") - dealt0)
     if not shot_taken:
         page.screenshot(path=f"{SHOTS}/{name}-2-fight.png")
-
-    # 7. manual aim: drag on free space in the right half, upward
-    mx, my = vw * 0.62, vh * 0.35
-    f.down(6, mx, my)
-    for i in range(1, 6):
-        f.move(6, mx, my - i * 8)
-        time.sleep(0.03)
-    time.sleep(0.15)
-    ang = st(page, "p.angle")
-    r["manualAimUp"] = -2.2 < ang < -0.9  # roughly straight up (-pi/2)
-    f.up(6)
 
     if clear_wave:
         t_end = time.time() + 60
@@ -207,18 +290,33 @@ def run_device(pw, name, desc, report, fight_seconds=8, clear_wave=False):
             ang = k * 0.2
             f.move(1, sx + 40 * __import__("math").cos(ang), sy + 40 * __import__("math").sin(ang))
             time.sleep(0.05)
-        r["wave1ClearedBy"] = page.evaluate("window.elementalBlow.app")
-        r["wave1Time"] = round(st(page, "s.time"), 1)
+            if time.time() > t_switch:
+                f.up(8)
+                held = hold_hint(8)
+                t_switch = time.time() + 1.5
+        r["fightEndedIn"] = page.evaluate("window.elementalBlow.app")
+        r["waveReached"] = st(page, "s.wave")
+        r["gameTime"] = round(st(page, "s.time"), 1)
         r["hpLeft"] = round(st(page, "p.hp"))
-        if r["wave1ClearedBy"] == "upgrade":
+        if r["fightEndedIn"] == "upgrade":
             time.sleep(0.6)
             page.screenshot(path=f"{SHOTS}/{name}-4-upgrade.png")
+            f.up(8)
             page.tap(".card >> nth=0")
             time.sleep(0.4)
             r["upgradeTapResumes"] = page.evaluate("window.elementalBlow.app") == "playing"
+    if 8 in f.pts:
+        f.up(8)
     f.up(1)
 
     # 8. pause button, then Resume by tap
+    past_upgrade()
+    if page.evaluate("window.elementalBlow.app") != "playing":
+        r["pauseSkipped"] = page.evaluate("window.elementalBlow.app")
+        r["errors"] = errors[:5]
+        report.append(r)
+        browser.close()
+        return
     px, py = center(page, ".t-pause")
     f.down(7, px, py)
     time.sleep(0.05)

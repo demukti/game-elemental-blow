@@ -73,10 +73,11 @@ const CONTROLS = [
 // touch devices (src/touch.js sets html.touch before the UI is built)
 const TOUCH_CONTROLS = [
   [['Left thumb'], 'Move'],
-  [['Auto'], 'Aim + attack'],
-  [['Diamond'], 'Element: tap or slide'],
-  [['Drag right'], 'Aim by hand'],
-  [['DASH'], 'Dash'],
+  [['Flick'], 'Dash (or DASH)'],
+  [['Element'], 'Hold: switch + attack'],
+  [['Hold still'], 'Auto-aim'],
+  [['Drag'], 'Aim by hand'],
+  [['Earth'], 'Slams on release'],
   [['BLOW'], 'Ultimate'],
   [['II'], 'Pause'],
 ];

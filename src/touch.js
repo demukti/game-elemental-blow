@@ -2,14 +2,17 @@
 //
 // Only created on touch-first devices (primary pointer coarse), or with ?touch=1; ?touch=0 turns it off.
 // Scheme (landscape):
-//   left thumb   floating stick anywhere on the left half: move
-//   right thumb  element diamond laid out like the cycle (water top, fire right, air bottom, earth left;
-//                each beats the next one clockwise): tap a pad, or slide across pads, to switch
-//                DASH and BLOW buttons beside it; dragging on free space on the right aims by hand
-//   automatic    fire is automatic while a target exists; aim locks onto the best target for the
-//                element held (countered enemies first, nearer first, resisted ones last) and leads
-//                moving targets a little. A ring marks the target; a pulse marks the pad that beats
-//                the nearest enemy (?hint=0 turns the pulse off).
+//   left thumb   floating stick anywhere on the left half: move. A quick flick (swipe and lift) dashes.
+//   right thumb  four element buttons in a circle laid out like the cycle (water top, fire right, air
+//                bottom, earth left; each beats the next one clockwise), shown while the right thumb is up.
+//                Pressing one selects it and the same touch becomes the aim stick, which attacks while
+//                held: held still it aims at the best target (auto-aim), pushed it aims where it points.
+//                Earth attacks once, on release: a tap slams the auto-aim target, a drag aims the slam.
+//                Pressing free space on the right aims with the element already held.
+//                DASH and BLOW buttons sit beside the circle.
+//   auto-aim     the best target for the element held (countered enemies first, nearer first, resisted
+//                ones last), leading moving targets a little. A ring marks it; a pulse marks the button
+//                that beats the nearest enemy (?hint=0 turns the pulse off).
 // It reads the sim state but never changes it: it only edits the per-step input object, like the bot.
 // ?speed=0.9 runs the game at 90% speed on touch (playtest option, default 1).
 
@@ -129,6 +132,11 @@ export function createTouch(opts = {}) {
   stick.hidden = true;
   const reticle = h('div', 't-reticle');
   reticle.hidden = true;
+  // the aim stick: a press on an element button (or free space on the right) turns into it
+  const aimStick = h('div', 't-stick t-aim');
+  const aimKnob = h('div', 't-knob');
+  aimStick.appendChild(aimKnob);
+  aimStick.hidden = true;
 
   const diamond = h('div', 't-diamond');
   // clockwise "beats" arrows between the pads, in the colour of the pad that does the beating
@@ -186,7 +194,7 @@ export function createTouch(opts = {}) {
   pause.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
   pause.setAttribute('aria-label', 'Pause');
 
-  layer.append(ghost, stick, reticle, diamond, dash, nova, pause);
+  layer.append(ghost, stick, aimStick, reticle, diamond, dash, nova, pause);
   document.body.appendChild(layer);
 
   // portrait notice (CSS shows it on touch devices held upright)
@@ -205,6 +213,7 @@ export function createTouch(opts = {}) {
   let ox = 0;
   let oy = 0;
   let stickR = 48;
+  let padSize = 52;
   function layout() {
     vw = window.innerWidth;
     vh = window.innerHeight;
@@ -213,6 +222,7 @@ export function createTouch(opts = {}) {
     oy = (vh - H * sc) / 2;
     const m = Math.min(vw, vh);
     const P = Math.round(Math.max(44, Math.min(74, m * 0.13))); // pad size
+    padSize = P;
     const gap = Math.round(P * 0.08);
     stickR = Math.round(Math.max(40, Math.min(70, m * 0.12)));
     root.style.setProperty('--t-pad', P + 'px');
@@ -238,27 +248,72 @@ export function createTouch(opts = {}) {
   window.addEventListener('orientationchange', layout);
 
   // ------------------------------------------------------------ touch handling
+  const FLICK_MS = 250; // a left touch shorter than this that travelled far enough is a dash flick
+  const deadPx = () => Math.max(12, stickR * 0.25); // aim stick: held within this, auto-aim
   let used = false; // set by the first touch on the layer; until then keyboard/mouse input passes through
-  let st = null; // stick touch: { id, bx, by, x, y }
-  let aimT = null; // free-aim touch: { id, sx, sy, dx, dy, live }
-  const padT = new Map(); // touch id -> element currently under it
+  let st = null; // move-stick touch: { id, bx, by, x, y, sx, sy, t0 (event time) }
+  let aim = null; // aim touch: { id, el (the element its press picked, or null), bx, by, x, y }
+  let curEl = null; // element held, as of the last sim step
   let pendSwitch = null;
   let pendDash = false;
+  let pendDashDir = null; // a flick dashes this way: [dx, dy]
   let pendBlow = false;
+  let pendEarth = null; // earth released: { dir: [dx, dy] or null (auto-aim), until: ms } until it slams
 
   function hit(x, y) {
     const el = document.elementFromPoint(x, y);
     if (!el || !layer.contains(el)) return null;
-    const pad = el.closest('.t-pad');
-    if (pad) return { pad: pad.dataset.el };
     const b = el.closest('[data-t]');
-    if (b) return { btn: b.dataset.t, el: b };
-    return null;
+    return b ? { btn: b.dataset.t, el: b } : null;
+  }
+
+  /** Inside the circle's box: the nearest button within reach, or null in the middle and corners (keeps the
+   *  element held). Outside the box: undefined. */
+  function circlePick(x, y) {
+    const r = diamond.getBoundingClientRect();
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return undefined;
+    let best = null;
+    let bd = Infinity;
+    for (const [el] of DIAMOND) {
+      const b = pads[el].b.getBoundingClientRect();
+      const d = Math.hypot(x - (b.left + b.width / 2), y - (b.top + b.height / 2));
+      if (d < bd) {
+        bd = d;
+        best = el;
+      }
+    }
+    return bd <= padSize * 0.8 ? best : null;
   }
 
   function press(b) {
     b.classList.add('down');
     setTimeout(() => b.classList.remove('down'), 120);
+  }
+
+  function paintAim() {
+    const el = (aim && aim.el) || curEl || 'fire';
+    aimStick.style.setProperty('--c', ELEMENT_COLORS[el]);
+    aimStick.classList.toggle('earth', el === 'earth');
+  }
+
+  // a stick whose thumb drifts too far drags its base along, so it never "runs out"
+  function follow(t, x, y, view, knobEl) {
+    let dx = x - t.bx;
+    let dy = y - t.by;
+    const l = Math.hypot(dx, dy);
+    const max = stickR * 1.5;
+    if (l > max) {
+      t.bx += (dx / l) * (l - max);
+      t.by += (dy / l) * (l - max);
+      dx = x - t.bx;
+      dy = y - t.by;
+      view.style.transform = `translate(${t.bx - stickR}px, ${t.by - stickR}px)`;
+    }
+    t.x = x;
+    t.y = y;
+    const kl = Math.min(stickR, Math.hypot(dx, dy));
+    const ka = Math.atan2(dy, dx);
+    knobEl.style.transform = `translate(${Math.cos(ka) * kl}px, ${Math.sin(ka) * kl}px)`;
   }
 
   function onStart(e) {
@@ -268,25 +323,37 @@ export function createTouch(opts = {}) {
       const x = t.clientX;
       const y = t.clientY;
       const hb = hit(x, y);
-      if (hb && hb.pad) {
-        padT.set(t.identifier, hb.pad);
-        pendSwitch = hb.pad;
-        press(pads[hb.pad].b);
-      } else if (hb && hb.btn) {
+      if (hb) {
         press(hb.el);
         if (hb.btn === 'dash') pendDash = true;
         else if (hb.btn === 'blow') pendBlow = true;
         else if (hb.btn === 'pause' && opts.onPause) opts.onPause();
-      } else if (x < vw * 0.5) {
-        if (!st) {
-          st = { id: t.identifier, bx: x, by: y, x, y };
-          stick.hidden = false;
-          stick.style.transform = `translate(${x - stickR}px, ${y - stickR}px)`;
-          knob.style.transform = 'translate(0px, 0px)';
-          ghost.classList.add('away');
+        continue;
+      }
+      const pick = circlePick(x, y);
+      if (pick !== undefined || x >= vw * 0.5) {
+        if (pick) {
+          pendSwitch = pick;
+          press(pads[pick].b);
         }
-      } else if (!aimT) {
-        aimT = { id: t.identifier, sx: x, sy: y, dx: 0, dy: 0, live: false };
+        if (aim) {
+          // a second finger on a button while aiming: it switches, the first touch keeps aiming
+          if (pick) aim.el = pick;
+          paintAim();
+          continue;
+        }
+        aim = { id: t.identifier, el: pick || null, bx: x, by: y, x, y };
+        aimStick.hidden = false;
+        aimStick.style.transform = `translate(${x - stickR}px, ${y - stickR}px)`;
+        aimKnob.style.transform = 'translate(0px, 0px)';
+        diamond.classList.add('holding');
+        paintAim();
+      } else if (!st) {
+        st = { id: t.identifier, bx: x, by: y, x, y, sx: x, sy: y, t0: e.timeStamp }; // event times: a busy frame can't stretch a flick
+        stick.hidden = false;
+        stick.style.transform = `translate(${x - stickR}px, ${y - stickR}px)`;
+        knob.style.transform = 'translate(0px, 0px)';
+        ghost.classList.add('away');
       }
     }
   }
@@ -294,65 +361,53 @@ export function createTouch(opts = {}) {
   function onMove(e) {
     e.preventDefault();
     for (const t of e.changedTouches) {
-      const x = t.clientX;
-      const y = t.clientY;
-      if (st && t.identifier === st.id) {
-        let dx = x - st.bx;
-        let dy = y - st.by;
-        const l = Math.hypot(dx, dy);
-        const max = stickR * 1.5;
-        if (l > max) {
-          // the base follows a thumb that drifts too far, so the stick never "runs out"
-          st.bx += (dx / l) * (l - max);
-          st.by += (dy / l) * (l - max);
-          dx = x - st.bx;
-          dy = y - st.by;
-          stick.style.transform = `translate(${st.bx - stickR}px, ${st.by - stickR}px)`;
-        }
-        st.x = x;
-        st.y = y;
-        const kl = Math.min(stickR, Math.hypot(dx, dy));
-        const ka = Math.atan2(dy, dx);
-        knob.style.transform = `translate(${Math.cos(ka) * kl}px, ${Math.sin(ka) * kl}px)`;
-      } else if (padT.has(t.identifier)) {
-        // slide across the diamond: the pad under the thumb becomes the element
-        const hb = hit(x, y);
-        if (hb && hb.pad && hb.pad !== padT.get(t.identifier)) {
-          padT.set(t.identifier, hb.pad);
-          pendSwitch = hb.pad;
-          press(pads[hb.pad].b);
-        }
-      } else if (aimT && t.identifier === aimT.id) {
-        aimT.dx = x - aimT.sx;
-        aimT.dy = y - aimT.sy;
-        if (Math.hypot(aimT.dx, aimT.dy) > 14) aimT.live = true;
-      }
+      if (st && t.identifier === st.id) follow(st, t.clientX, t.clientY, stick, knob);
+      else if (aim && t.identifier === aim.id) follow(aim, t.clientX, t.clientY, aimStick, aimKnob);
     }
+  }
+
+  function endAim() {
+    aim = null;
+    aimStick.hidden = true;
+    diamond.classList.remove('holding');
   }
 
   function onEnd(e) {
     e.preventDefault();
     for (const t of e.changedTouches) {
       if (st && t.identifier === st.id) {
+        const dx = st.x - st.sx;
+        const dy = st.y - st.sy;
+        const l = Math.hypot(dx, dy);
+        if (e.type === 'touchend' && e.timeStamp - st.t0 < FLICK_MS && l > Math.max(24, stickR * 0.5)) {
+          pendDash = true;
+          pendDashDir = [dx / l, dy / l];
+        }
         st = null;
         stick.hidden = true;
         ghost.classList.remove('away');
-      } else if (aimT && t.identifier === aimT.id) {
-        aimT = null;
+      } else if (aim && t.identifier === aim.id) {
+        if (e.type === 'touchend' && (aim.el || curEl) === 'earth') {
+          // earth slams on release: aimed by the drag, or at the auto-aim target after a tap
+          const dx = aim.x - aim.bx;
+          const dy = aim.y - aim.by;
+          pendEarth = { dir: Math.hypot(dx, dy) > deadPx() ? [dx, dy] : null, until: performance.now() + 350 };
+        }
+        endAim();
       }
-      padT.delete(t.identifier);
     }
   }
 
   function releaseAll() {
     st = null;
-    aimT = null;
-    padT.clear();
+    endAim();
     stick.hidden = true;
     ghost.classList.remove('away');
     pendSwitch = null;
     pendDash = false;
+    pendDashDir = null;
     pendBlow = false;
+    pendEarth = null;
   }
 
   layer.addEventListener('touchstart', onStart, { passive: false });
@@ -398,28 +453,47 @@ export function createTouch(opts = {}) {
       out.moveX = dx;
       out.moveY = dy;
     }
+    if (pendDashDir) {
+      // the sim dashes along the move vector: point it where the flick went
+      out.moveX = pendDashDir[0];
+      out.moveY = pendDashDir[1];
+    }
     if (pendSwitch && !inp.switchTo) out.switchTo = pendSwitch;
     if (pendDash) out.dash = true;
     if (pendBlow) out.blow = true;
     pendSwitch = null;
     pendDash = false;
+    pendDashDir = null;
     pendBlow = false;
 
     const el = out.switchTo || p.element;
-    if (aimT && aimT.live) {
-      out.aimX = p.x + aimT.dx * 10;
-      out.aimY = p.y + aimT.dy * 10;
-      out.fire = true;
-      targetId = 0;
-      return out;
+    curEl = el;
+    let dir = null; // aimed by hand: [dx, dy]
+    if (aim) {
+      const dx = aim.x - aim.bx;
+      const dy = aim.y - aim.by;
+      if (Math.hypot(dx, dy) > deadPx()) dir = [dx, dy];
     }
-    const a = autoAim(state, el, targetId);
-    targetId = a ? a.target.id : 0;
-    targetMult = a ? a.mult : 1;
-    if (a) {
-      out.aimX = a.x;
-      out.aimY = a.y;
-      out.fire = a.fire;
+    if (pendEarth && (el !== 'earth' || performance.now() > pendEarth.until)) pendEarth = null;
+    if (pendEarth && !aim) dir = pendEarth.dir;
+    if (dir) {
+      out.aimX = p.x + dir[0] * 10;
+      out.aimY = p.y + dir[1] * 10;
+      targetId = 0;
+    } else {
+      const a = autoAim(state, el, targetId);
+      targetId = a ? a.target.id : 0;
+      targetMult = a ? a.mult : 1;
+      if (a) {
+        out.aimX = a.x;
+        out.aimY = a.y;
+      }
+    }
+    // attack while the aim stick is held; earth only once, on release (kept until its cooldown allows)
+    if (aim && el !== 'earth') out.fire = true;
+    else if (pendEarth && !aim && p.cooldowns.earth <= 0) {
+      out.fire = true;
+      pendEarth = null;
     }
     return out;
   }
@@ -480,6 +554,7 @@ export function createTouch(opts = {}) {
     set('nv', Math.floor(Math.min(100, p.blow || 0) / 5), (v) => novaFill.style.height = v * 5 + '%');
     set('nvr', (p.blow || 0) >= 100, (v) => nova.classList.toggle('ready', v));
 
+    if (aim) set('aimEl', curEl, () => paintAim());
     // target ring
     const tg = targetId ? state.enemies.find((e) => e.id === targetId) : null;
     if (tg && used) {

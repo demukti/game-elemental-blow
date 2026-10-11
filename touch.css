@@ -71,7 +71,12 @@ html.touch #fullscreen { right: auto; left: max(0.8em, env(safe-area-inset-left)
   font-size: 10px; font-weight: 900; letter-spacing: 0.25em; color: var(--ink-dim);
 }
 
-/* element diamond: water top, fire right, air bottom, earth left, like the cycle on the menu */
+/* aim stick: a press on an element button turns into it, in that element's colour; it attacks while held */
+.t-aim { --c: #fff; border-color: color-mix(in srgb, var(--c) 70%, transparent); background: radial-gradient(color-mix(in srgb, var(--c) 22%, transparent), rgba(40, 32, 80, 0.12)); }
+.t-aim .t-knob { background: color-mix(in srgb, var(--c) 70%, #fff); box-shadow: 0 0 14px var(--c); }
+.t-aim.earth { border-style: dashed; } /* earth slams when the thumb lifts */
+
+/* element circle: water top, fire right, air bottom, earth left, like the cycle on the menu */
 .t-diamond {
   position: absolute;
   right: calc(max(8px, env(safe-area-inset-right)) + 4px); bottom: 8px;
@@ -119,6 +124,7 @@ html.touch #fullscreen { right: auto; left: max(0.8em, env(safe-area-inset-left)
 /* the player is underneath: let the fight show through (the buttons still work) */
 .t-diamond.faded, .t-btn.faded { opacity: 0.3; }
 .t-diamond { transition: opacity 0.15s; }
+.t-diamond.holding { opacity: 0.15; } /* the right thumb is on the aim stick: the circle steps back */
 
 /* DASH: left of the diamond, at the bottom; BLOW above it */
 .t-btn {
