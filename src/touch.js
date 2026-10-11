@@ -53,6 +53,45 @@ function mult(att, def) {
   return 1;
 }
 
+/**
+ * Auto-aim: the best target for element `el` and where to aim. Pure (reads the sim state only), so the
+ * touch study's bot proxy uses exactly the same targeting. Countered enemies count as 40% nearer,
+ * resisted ones 70% further; anything out of the blow's reach or still materialising comes last;
+ * the previous target (`prevId`) is kept unless another is clearly better.
+ * @returns {null | { target: object, x: number, y: number, fire: boolean, mult: number }}
+ */
+export function autoAim(state, el, prevId = 0) {
+  const p = state.player;
+  let best = null;
+  let bs = Infinity;
+  for (const e of state.enemies) {
+    if (e._dead) continue;
+    const d = Math.max(0, Math.hypot(e.x - p.x, e.y - p.y) - e.r);
+    const m = mult(el, e.element);
+    let s = d * (m === 2 ? 0.6 : m === 1 ? 1 : 1.7);
+    if (d > RANGE[el]) s += 3000; // out of reach: only when nothing is in reach
+    if (e.spawnT > 0.5) s += 1500; // still materialising
+    if (e.id === prevId) s *= 0.8; // stickiness: no flicker between two similar targets
+    if (s < bs) {
+      bs = s;
+      best = e;
+    }
+  }
+  if (!best) return null;
+  let x = best.x;
+  let y = best.y;
+  const B = BLOWS[el];
+  if (B.speed) {
+    // modest lead: most of the way to where a steadily moving target will be
+    const t = Math.min(0.5, Math.hypot(x - p.x, y - p.y) / B.speed);
+    x += (best.vx || 0) * t * 0.8;
+    y += (best.vy || 0) * t * 0.8;
+  }
+  // the earth slam is melee: hold it until the target is in reach instead of slamming thin air
+  const fire = el !== 'earth' || Math.hypot(best.x - p.x, best.y - p.y) - best.r <= RANGE.earth;
+  return { target: best, x, y, fire, mult: mult(el, best.element) };
+}
+
 function h(tag, cls, text) {
   const el = document.createElement(tag);
   if (cls) el.className = cls;
@@ -325,26 +364,6 @@ export function createTouch(opts = {}) {
   // ------------------------------------------------------------ auto-aim
   let targetId = 0;
   let targetMult = 1;
-  function pickTarget(state, el) {
-    const p = state.player;
-    let best = null;
-    let bs = Infinity;
-    for (const e of state.enemies) {
-      if (e._dead) continue;
-      const d = Math.max(0, Math.hypot(e.x - p.x, e.y - p.y) - e.r);
-      const m = mult(el, e.element);
-      let s = d * (m === 2 ? 0.6 : m === 1 ? 1 : 1.7);
-      if (d > RANGE[el]) s += 3000; // out of reach: only when nothing is in reach
-      if (e.spawnT > 0.5) s += 1500; // still materialising
-      if (e.id === targetId) s *= 0.8; // stickiness: no flicker between two similar targets
-      if (s < bs) {
-        bs = s;
-        best = e;
-      }
-    }
-    return best;
-  }
-
   function nearestThreat(state) {
     const p = state.player;
     let best = null;
@@ -394,23 +413,13 @@ export function createTouch(opts = {}) {
       targetId = 0;
       return out;
     }
-    const tg = pickTarget(state, el);
-    targetId = tg ? tg.id : 0;
-    targetMult = tg ? mult(el, tg.element) : 1;
-    if (tg) {
-      let tx = tg.x;
-      let ty = tg.y;
-      const B = BLOWS[el];
-      if (B.speed) {
-        // modest lead: most of the way to where a steadily moving target will be
-        const t = Math.min(0.5, Math.hypot(tx - p.x, ty - p.y) / B.speed);
-        tx += (tg.vx || 0) * t * 0.8;
-        ty += (tg.vy || 0) * t * 0.8;
-      }
-      out.aimX = tx;
-      out.aimY = ty;
-      // the earth slam is melee: hold it until the target is in reach instead of slamming thin air
-      out.fire = el !== 'earth' || Math.hypot(tg.x - p.x, tg.y - p.y) - tg.r <= RANGE.earth;
+    const a = autoAim(state, el, targetId);
+    targetId = a ? a.target.id : 0;
+    targetMult = a ? a.mult : 1;
+    if (a) {
+      out.aimX = a.x;
+      out.aimY = a.y;
+      out.fire = a.fire;
     }
     return out;
   }

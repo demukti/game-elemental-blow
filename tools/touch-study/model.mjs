@@ -11,6 +11,7 @@
 import { botInput, nearestEnemy } from '../../src/bot.js';
 import { counterOf } from '../../src/sim.js';
 import { ELEMENTS, BEATS, BLOWS } from '../../src/config.js';
+import { autoAim } from '../../src/touch.js';
 
 const DEG = Math.PI / 180;
 
@@ -39,7 +40,8 @@ function gauss(rng) {
  *  dashMotor    s   motor time to press dash after deciding
  *  dashFireGap  s   firing stops this long around a dash press (the same thumb)
  *  dashBlockedBySwitch bool  dash waits while the thumb is hopping between element controls
- *  aim          'bot' | 'manual' | 'auto'   manual = lagged, noisy pursuit of the bot's target
+ *  aim          'bot' | 'manual' | 'auto' | 'proto'   manual = lagged, noisy pursuit of the bot's target;
+ *               auto = exact aim at the bot's target; proto = the prototype's autoAim (src/touch.js)
  *  aimLag       s   time constant of the manual aim pursuit
  *  aimNoise     deg sd of the manual aim error (resampled every aimJitterEvery s, a drifting hand)
  *  autoLead     bool  auto-aim leads moving targets with projectile blows
@@ -206,7 +208,16 @@ export function makeModel(name, overrides = {}, seed = 1) {
       }
 
       // aim
-      if (target) {
+      if (P.aim === 'proto') {
+        // the prototype's own targeting (src/touch.js autoAim): prefers enemies the held element counters
+        const a = autoAim(state, out.switchTo || p.element, m.protoId || 0);
+        m.protoId = a ? a.target.id : 0;
+        if (a) {
+          out.aimX = a.x;
+          out.aimY = a.y;
+          if (!a.fire) out.fire = false;
+        }
+      } else if (target) {
         if (P.aim === 'auto') {
           let tx = target.x;
           let ty = target.y;
