@@ -54,6 +54,11 @@ function gauss(rng) {
  *  tiltDrift    -   tilt movement: sd of a slowly wandering bias, as a share of full speed (a hand never
  *                   holds the phone exactly level)
  *  tiltDead     -   tilt movement: dead zone, as a share of full speed (standing still = holding it level)
+ *  taps         {}  element by tap series instead of pads: N taps move N-1 steps along `order` (2 = next).
+ *                   think s (count the steps), tapIv s per tap, window s to see the series has ended
+ *                   (not after the 4th tap, nor with `immediate`, where each tap after the first applies at
+ *                   once), thumb 'right' (lifts off the aim stick: no fire, then `reacquire`) or 'left'
+ *                   (lifts off the move stick: no movement). `mistap` is then a miscount by one step.
  */
 export const PRESETS = {
   bot: { raw: true },
@@ -205,8 +210,20 @@ export function makeModel(name, overrides = {}, seed = 1) {
         }
         if (m.hopEl === null && m.wishEl && m.wishEl !== p.element && now - m.wishSince >= P.react) {
           m.hopEl = m.wishEl;
-          m.hopEnd = now + P.hop;
-          if (P.hopFireGap) m.gapEnd = Math.max(m.gapEnd, now + P.hop + (P.reacquire || 0));
+          if (P.taps) {
+            const T = P.taps;
+            const d = (T.order.indexOf(m.wishEl) - T.order.indexOf(p.element) + 4) % 4;
+            const n = d + 1;
+            const busy = n * T.tapIv + (n < 4 && !T.immediate ? T.window : 0);
+            m.hopEnd = now + T.think + busy;
+            m.tapFrom = now + T.think; // the thumb leaves its stick once the count is decided
+            m.tapTo = now + T.think + n * T.tapIv + (T.thumb === 'right' ? P.reacquire || 0 : 0);
+            m.stats.dist = m.stats.dist || [0, 0, 0, 0];
+            m.stats.dist[d]++;
+          } else {
+            m.hopEnd = now + P.hop;
+            if (P.hopFireGap) m.gapEnd = Math.max(m.gapEnd, now + P.hop + (P.reacquire || 0));
+          }
         }
         if (m.hopEl !== null && now >= m.hopEnd) {
           if (P.mistap && rng() < P.mistap) {
@@ -248,8 +265,14 @@ export function makeModel(name, overrides = {}, seed = 1) {
         m.blowAt = -1;
       }
 
+      // tap series: the tapping thumb is off its stick
+      const tapping = P.taps && now >= (m.tapFrom ?? Infinity) && now < (m.tapTo ?? -Infinity);
+      if (tapping && P.taps.thumb === 'left') {
+        out.moveX = 0;
+        out.moveY = 0;
+      }
       // fire: blocked while the thumb is busy elsewhere
-      if (now < m.gapEnd && want.fire) {
+      if (((now < m.gapEnd) || (tapping && P.taps.thumb === 'right')) && want.fire) {
         out.fire = false;
         m.stats.fireBlocked++;
       }
