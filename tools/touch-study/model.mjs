@@ -49,6 +49,11 @@ function gauss(rng) {
  *  moveNoise    deg sd of the stick direction error (resampled every 0.2 s)
  *  noSwitch     bool  never switches element (sensitivity check)
  *  mistap       p   chance a hop lands on a neighbouring element (noticed and fixed after `react`)
+ *  tiltLag      s   tilt movement: the move vector pursues the wish with this time constant (turning a
+ *                   phone is slower than a thumb, and a reversal has to pass through level)
+ *  tiltDrift    -   tilt movement: sd of a slowly wandering bias, as a share of full speed (a hand never
+ *                   holds the phone exactly level)
+ *  tiltDead     -   tilt movement: dead zone, as a share of full speed (standing still = holding it level)
  */
 export const PRESETS = {
   bot: { raw: true },
@@ -76,6 +81,21 @@ export const PRESETS = {
     moveDelay: 0.12, react: 0.2, hop: 0.2, hopFireGap: true, mistap: 0.05,
     dashMotor: 0.12, dashFireGap: 0.25, dashBlockedBySwitch: true,
     aim: 'auto',
+  },
+  // tilt to move, right stick to aim (auto-fire while it is held); the left thumb is free for element pads,
+  // dash and nova, so switching never interrupts the aim. +30 ms of sensor smoothing on the reaction.
+  tiltAim: {
+    moveDelay: 0.15, react: 0.2, hop: 0.2, hopFireGap: false, mistap: 0.05,
+    dashMotor: 0.12, dashFireGap: 0, dashBlockedBySwitch: true,
+    aim: 'manual', aimLag: 0.15, aimNoise: 6,
+    tiltLag: 0.2, tiltDrift: 0.12, tiltDead: 0.1,
+  },
+  // tilt to move with the prototype's auto-aim and auto-fire: both thumbs free for pads, dash and nova
+  tiltAuto: {
+    moveDelay: 0.15, react: 0.2, hop: 0.15, hopFireGap: false, mistap: 0.05,
+    dashMotor: 0.12, dashFireGap: 0, dashBlockedBySwitch: false,
+    aim: 'proto',
+    tiltLag: 0.2, tiltDrift: 0.12, tiltDead: 0.1,
   },
   // "lite": auto-aim and auto-element; the player only moves, dashes and fires the nova
   touchLite: {
@@ -138,6 +158,33 @@ export function makeModel(name, overrides = {}, seed = 1) {
         const c = Math.cos(m.moveErr);
         const sn = Math.sin(m.moveErr);
         [mx, my] = [mx * c - my * sn, mx * sn + my * c];
+      }
+      if (P.tiltLag) {
+        const k = Math.min(1, (1 / 60) / P.tiltLag);
+        m.tx = (m.tx || 0) + (mx - (m.tx || 0)) * k;
+        m.ty = (m.ty || 0) + (my - (m.ty || 0)) * k;
+        if (now >= (m.driftT || 0)) {
+          m.driftGoalX = gauss(rng) * (P.tiltDrift || 0);
+          m.driftGoalY = gauss(rng) * (P.tiltDrift || 0);
+          m.driftT = now + 0.8;
+        }
+        const kd = Math.min(1, (1 / 60) / 0.8);
+        m.driftX = (m.driftX || 0) + ((m.driftGoalX || 0) - (m.driftX || 0)) * kd;
+        m.driftY = (m.driftY || 0) + ((m.driftGoalY || 0) - (m.driftY || 0)) * kd;
+        let tx = m.tx + m.driftX;
+        let ty = m.ty + m.driftY;
+        const l = Math.hypot(tx, ty);
+        const dead = P.tiltDead || 0;
+        if (l <= dead) {
+          tx = 0;
+          ty = 0;
+        } else {
+          const sc = Math.min(1, (l - dead) / (1 - dead)) / l;
+          tx *= sc;
+          ty *= sc;
+        }
+        mx = tx;
+        my = ty;
       }
       out.moveX = mx;
       out.moveY = my;
