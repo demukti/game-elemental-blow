@@ -495,6 +495,14 @@ html.touch .touch-note { display: none; } /* src/touch.js is on: touch controls 
 .m-x1 { color: var(--ink); }
 .m-x0 { color: #8f86b3; }
 .m-tech li { margin: 0.55em 0; }
+/* enemy cards: name and first wave, the stat line, then the notes */
+.m-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(24em, 1fr)); gap: 0.9em; margin: 0.6em 0 1.2em; }
+.m-card { padding: 0.8em 1.1em 0.5em; border-radius: 0.8em; background: rgba(255, 255, 255, 0.035); border: 1px solid rgba(150, 130, 230, 0.16); }
+.m-card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.2em 0.8em; }
+.m-card-head b { font-size: 1.15em; color: var(--gold); }
+.m-card-head span { font-size: 0.78em; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); }
+.m-stats { margin: 0.2em 0 0.5em; font-size: 0.88em; color: var(--ink-dim); }
+.m-card ul { margin: 0; }
 
 .m-figs { display: grid; grid-template-columns: repeat(auto-fill, minmax(15em, 1fr)); gap: 0.8em; margin: 0.6em 0 1.2em; }
 .m-fig { margin: 0; display: flex; gap: 0.8em; align-items: center; padding: 0.6em 0.8em 0.6em 0.5em; border-radius: 0.8em; background: rgba(5, 3, 12, 0.5); border: 1px solid rgba(150, 130, 230, 0.16); }

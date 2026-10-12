@@ -349,7 +349,7 @@ ${tip('It is also a panic button.', `${sec(ULT.invuln)} of invulnerability, a bo
 
 function secEnemies() {
   const G = ENEMIES.grunt, S = ENEMIES.swarm, P = ENEMIES.spitter, B = ENEMIES.brute;
-  const card = (name, from, stats, items) => `<div class="m-card"><div class="m-card-head"><b>${name}</b><span>${from}</span></div><div class="m-stats">${stats}</div><ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul></div>`;
+  const card = (name, from, stats, items) => `<div class="m-card"><div class="m-card-head"><b>${name}</b> <span>${from}</span></div><div class="m-stats">${stats}</div><ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul></div>`;
   return `<p class="m-lead">Wave-1 numbers; HP, damage and speed grow every wave (see ${go('waves', 'Waves')}). The colour of an enemy's outline is its element.</p>
 <div class="m-cards">
 ${card('Grunt', 'from wave 1', `HP ${G.hp} · speed ${G.speed} · touch ${G.dmg}`, [
