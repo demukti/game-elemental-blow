@@ -6,7 +6,7 @@ const BEATS = { water: 'fire', fire: 'air', air: 'earth', earth: 'water' };
 const NAMES = { fire: 'Fire', water: 'Water', earth: 'Earth', air: 'Air' };
 const SURGE_BONUS = 0.3; // max nova damage bonus from holding the meter full (mirrors config ULT.surgeBonus)
 
-const ICONS = {
+export const ICONS = {
   fire: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 3-7 1 2 2 2 2 2 0-3 0-5 1-7z"/></svg>',
   water: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C9 7 5 10 5 15a7 7 0 0 0 14 0c0-5-4-8-7-13z"/></svg>',
   earth: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.5l9 6.5-3 11.5H6L3 9z"/></svg>',
@@ -70,9 +70,19 @@ const CONTROLS = [
   [['Alt+Enter'], 'Full screen'],
 ];
 
+// touch devices (src/touch.js sets html.touch before the UI is built)
+const TOUCH_CONTROLS = [
+  [['Left thumb'], 'Move · quick swipe: dash'],
+  [['Hold element'], 'Switch + attack'],
+  [['Still / drag'], 'Auto-aim / aim by hand'],
+  [['Earth'], 'Attacks when you lift'],
+  [['BLOW', 'II'], 'Nova · pause'],
+];
+const isTouch = () => typeof document !== 'undefined' && document.documentElement.classList.contains('touch');
+
 function controlsList(cls, rows) {
   const list = h('ul', 'controls ' + (cls || ''));
-  (rows || CONTROLS).forEach(([keys, label]) => {
+  (rows || (isTouch() ? TOUCH_CONTROLS : CONTROLS)).forEach(([keys, label]) => {
     const li = h('li');
     const k = h('span', 'keys');
     keys.forEach((x) => k.appendChild(h('kbd', null, x)));
@@ -254,7 +264,7 @@ export function createUI(callbacks) {
   // UPGRADE
   const upgrade = makeOverlay('upgrade', 'upgrade');
   const upTitle = h('h2', 'ov-title', 'CHOOSE AN UPGRADE');
-  const upSub = h('p', 'ov-sub', 'Press 1, 2 or 3, or click a card · H opens the manual');
+  const upSub = h('p', 'ov-sub', isTouch() ? 'Tap a card' : 'Press 1, 2 or 3, or click a card · H opens the manual');
   const cards = h('div', 'cards');
   const owned = h('div', 'owned');
   upgrade.append(upTitle, upSub, cards, owned);

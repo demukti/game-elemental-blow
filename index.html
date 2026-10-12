@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <!-- iPhone has no full screen API: "Add to Home Screen" opens the game without the browser bars -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Elemental Blow</title>
   <meta name="description" content="Top-down elemental arena brawler. Master the cycle: water, fire, air, earth.">
   <!-- link previews in chat apps; npm run dist makes the image address absolute -->

@@ -349,7 +349,7 @@ ${tip('It is also a panic button.', `${sec(ULT.invuln)} of invulnerability, a bo
 
 function secEnemies() {
   const G = ENEMIES.grunt, S = ENEMIES.swarm, P = ENEMIES.spitter, B = ENEMIES.brute;
-  const card = (name, from, stats, items) => `<div class="m-card"><div class="m-card-head"><b>${name}</b><span>${from}</span></div><div class="m-stats">${stats}</div><ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul></div>`;
+  const card = (name, from, stats, items) => `<div class="m-card"><div class="m-card-head"><b>${name}</b> <span>${from}</span></div><div class="m-stats">${stats}</div><ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul></div>`;
   return `<p class="m-lead">Wave-1 numbers; HP, damage and speed grow every wave (see ${go('waves', 'Waves')}). The colour of an enemy's outline is its element.</p>
 <div class="m-cards">
 ${card('Grunt', 'from wave 1', `HP ${G.hp} · speed ${G.speed} · touch ${G.dmg}`, [
@@ -511,7 +511,27 @@ function secTech() {
   return `<ol class="m-tech">${items.map(([t, b]) => `<li><b>${t}</b> ${b}</li>`).join('')}</ol>`;
 }
 
-function secControls() {
+// Touch devices (src/touch.js): this table leads the Controls section, which leads the manual.
+function secTouch() {
+  return table(['Action', 'Touch'], [
+    ['Move', 'Left thumb anywhere on the left half: a stick appears where you touch'],
+    ['Dash', 'A quick swipe on the left half that lifts off dashes that way; or the DASH button'],
+    ['Attack', 'Hold one of the four element buttons on the right: it switches to that element and attacks while you hold'],
+    ['Aim', 'Hold still: auto-aim at the best target for your element (a ring marks it, gold when your element beats it). Drag: aim by hand'],
+    [el('earth'), 'Attacks once, when you lift: a tap slams the auto-aim target, a drag aims the slam'],
+    ['Thumb up', "Attacking stops and the element stays: holding an enemy's element halves the damage it does to you"],
+    ['Free space on the right', 'Aims and attacks with the element you already hold'],
+    ['Which element?', 'The button that beats the nearest enemy pulses'],
+    ['Nova (full meter)', 'The BLOW button, when it glows'],
+    ['Pause', 'The II button, top right; turning the phone upright pauses too'],
+  ]);
+}
+
+function secControls({ touch } = {}) {
+  return touch ? `${secTouch()}<h4>With a keyboard and mouse</h4>${secKeys()}` : secKeys();
+}
+
+function secKeys() {
   return table(['Action', 'Keys'], [
     ['Move', `${k('W', 'A', 'S', 'D')} or the arrow keys`],
     ['Aim', 'Mouse'],
@@ -600,11 +620,13 @@ const SECTIONS = [
 
 const esc = (s) => s.replace(/&/g, '&amp;');
 
-/** The manual's markup (a pure function of the tuning tables). */
-export function manualHTML() {
+/** The manual's markup (a pure function of the tuning tables). With touch, Controls comes first and
+ *  starts with the touch controls. */
+export function manualHTML({ touch = false } = {}) {
   gid = 0;
-  const nav = SECTIONS.map(([id, title]) => `<button type="button" tabindex="-1" data-goto="${id}">${esc(title)}</button>`).join('');
-  const body = SECTIONS.map(([id, title, fn]) => `<section class="m-sec" id="m-${id}" data-sec="${id}"><h3>${esc(title)}</h3>${fn()}</section>`).join('');
+  const order = touch ? [...SECTIONS.filter((s) => s[0] === 'controls'), ...SECTIONS.filter((s) => s[0] !== 'controls')] : SECTIONS;
+  const nav = order.map(([id, title]) => `<button type="button" tabindex="-1" data-goto="${id}">${esc(title)}</button>`).join('');
+  const body = order.map(([id, title, fn]) => `<section class="m-sec" id="m-${id}" data-sec="${id}"><h3>${esc(title)}</h3>${fn({ touch })}</section>`).join('');
   return `<div class="panel manual-panel" role="dialog" aria-modal="true" aria-labelledby="manual-title">
 <header class="manual-head"><h2 class="manual-title" id="manual-title">Field Manual</h2>
 <button type="button" class="btn ghost manual-close" tabindex="-1"><span class="btn-label">Close</span><kbd>ESC</kbd></button></header>
@@ -624,7 +646,7 @@ export function createManual(host) {
   const ov = document.createElement('div');
   ov.className = 'overlay manual';
   ov.hidden = true;
-  ov.innerHTML = manualHTML();
+  ov.innerHTML = manualHTML({ touch: document.documentElement.classList.contains('touch') });
   root.appendChild(ov);
   const content = ov.querySelector('.manual-content');
   const navBtns = Array.from(ov.querySelectorAll('.manual-nav button'));

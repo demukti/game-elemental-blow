@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds dist/elemental-blow.zip, the whole game ready to unpack into a website's folder: index.html,
-# style.css, og.jpg, .htaccess and src/ (with BOARD_URL set to the scores.php next to them) plus scores.php
+# style.css, touch.css, og.jpg, .htaccess and src/ (with BOARD_URL set to the scores.php next to them) plus scores.php
 # with the board code filled in, and dist/UPLOAD.txt with step-by-step instructions.
 # Usage: npm run dist [-- CODE [HOST]]   CODE: board code; HOST: the site, e.g. games.example.com, used in
 # UPLOAD.txt and the link preview. Left out, both come from the last build (dist/UPLOAD.txt), since a new
@@ -27,7 +27,7 @@ fi
 
 rm -rf dist
 mkdir -p dist/stage/src
-cp index.html style.css og.jpg .htaccess dist/stage/
+cp index.html style.css touch.css og.jpg .htaccess dist/stage/
 cp src/*.js dist/stage/src/
 if [ "$host" != YOUR-SITE ]; then # link previews (chat apps) need the image's full address
   sed -i.bak "s|content=\"og.jpg\"|content=\"https://$host/og.jpg\"|" dist/stage/index.html
@@ -39,7 +39,7 @@ rm dist/stage/src/board.js.bak
 grep -q "^export const BOARD_URL = 'scores.php';" dist/stage/src/board.js
 sed "s|^const BOARDS = \['change-me'\];|const BOARDS = ['$code'];|" leaderboard/scores.php > dist/stage/scores.php
 grep -q "^const BOARDS = \['$code'\];" dist/stage/scores.php
-(cd dist/stage && zip -qrX ../elemental-blow.zip index.html style.css og.jpg .htaccess src scores.php)
+(cd dist/stage && zip -qrX ../elemental-blow.zip index.html style.css touch.css og.jpg .htaccess src scores.php)
 rm -rf dist/stage
 
 cat > dist/UPLOAD.txt <<EOF
@@ -59,7 +59,7 @@ Players' link: https://$host/?board=$code
    zips). cgi-bin can stay.
 
 3. Upload elemental-blow.zip there, select it and choose Extract. You get
-   index.html, style.css, og.jpg, scores.php, a src folder and .htaccess
+   index.html, style.css, touch.css, og.jpg, scores.php, a src folder and .htaccess
    (it tells browsers to check for a newer game on every visit). Delete the
    zip.
 

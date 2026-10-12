@@ -11,6 +11,7 @@ import { audio } from './audio.js';
 import { createInput } from './input.js';
 import { botInput } from './bot.js';
 import { createBoard, boardName, stripName } from './board.js';
+import { createTouch } from './touch.js';
 
 const STEP = 1 / 60;
 const MAX_FRAME = 0.1; // clamp long frame gaps (tab switches, breakpoints) to at most 6 sim steps
@@ -97,6 +98,9 @@ function safe(label, fn) {
 const canvas = document.getElementById('game');
 const renderer = createRenderer(canvas);
 const input = createInput({ canvas, renderer });
+// Touch controls (src/touch.js): null unless this is a touch-first device or ?touch=1. Created before
+// the UI so the menu can show touch controls.
+const touch = createTouch({ onPause: () => pause() });
 const board = createBoard(); // friends board (src/board.js); inactive unless configured
 
 let app = 'menu';
@@ -173,6 +177,7 @@ function resetClock() {
 // ---------------------------------------------------------------------------
 function startGame() {
   safe('audio.init', () => audio.init());
+  if (touch && !botMode) safe('touch.onStart', () => touch.onStart());
   state = createGame(seedFromUrl());
   app = 'playing';
   resetClock();
@@ -462,9 +467,10 @@ function frame(now) {
 
   const events = [];
   if (app === 'playing' && state) {
-    acc += dt;
+    acc += dt * (touch ? touch.timeScale : 1);
     while (acc >= STEP) {
-      const sampled = input.sample(state);
+      let sampled = input.sample(state);
+      if (touch) sampled = safe('touch.apply', () => touch.apply(sampled, state)) || sampled;
       const inp = botMode ? safe('bot.input', () => botInput(state, { smart: botMode !== 'simple' })) || sampled : sampled;
       update(state, inp, STEP);
       for (const ev of state.events) events.push(ev);
@@ -476,6 +482,7 @@ function frame(now) {
     }
   }
   dispatch(events);
+  if (touch) safe('touch.frame', () => touch.frame(app, state));
 
   if (app === 'playing' && state) {
     if (state.phase === 'upgrade') enterUpgrade();

@@ -1,0 +1,216 @@
+/* Elemental Blow — touch controls (prototype). Loaded by src/touch.js on touch devices only. */
+
+/* ============================================================ HUD on small screens */
+/* one scaling unit for touch: bigger than the desktop clamp so HUD text stays readable on phones */
+html.touch { --u: clamp(11px, min(1.5vw, 3.2vh), 52px); }
+html.touch .hud-bc { display: none; } /* the element diamond and DASH button replace the slot bar */
+html.touch .hud-tl { top: 0.5em; left: max(0.8em, env(safe-area-inset-left)); width: 13em; gap: 0.45em; }
+html.touch .hud-tc { top: 0.3em; }
+html.touch .hud-tr { top: 0.3em; right: calc(max(0.8em, env(safe-area-inset-right)) + 3.6em); }
+html.touch .blow-hint kbd, html.touch .btn kbd { display: none; }
+html.touch .score { font-size: 1.9em; }
+html.touch .banner { font-size: 3.6em; }
+html.touch .banner.boss { font-size: 4.4em; }
+html.touch .banner.warn { font-size: 2.8em; }
+html.touch.t-playing #fullscreen { display: none; }
+html.touch #fullscreen { right: auto; left: max(0.8em, env(safe-area-inset-left)); bottom: 0.8em; }
+
+/* menus on short landscape phones: keep PLAY and the cycle on screen */
+@media (max-height: 500px) {
+  html.touch .menu { gap: 1.2em; padding: 0.8em; }
+  html.touch .title .t1 { font-size: 2.2em; }
+  html.touch .title .t2 { font-size: 4.2em; }
+  html.touch .tagline { display: none; }
+  html.touch .cycle-wrap { width: 6.5em; }
+  html.touch .menu-side { gap: 0.6em; }
+  html.touch .menu-side .panel { padding: 0.6em 0.9em; }
+  html.touch .menu-side h2 { margin-bottom: 0.4em; }
+  html.touch .cycle-text { margin: 0.3em 0 0; }
+  html.touch .cycle-sub { display: none; }
+  html.touch .menu-main { gap: 0.6em; }
+  html.touch .menu .scores .board { max-height: 6.5em; }
+  html.touch .dialog { min-width: 0; }
+  html.touch .controls.compact { display: none; }
+  html.touch .overlay { padding: 0.8em; }
+  html.touch .ov-title, html.touch .dialog .ov-title { font-size: 2.4em; }
+  html.touch .card { padding: 0.8em; }
+}
+
+/* touch controls list (menu): one column, the labels are longer than key names */
+html.touch .controls.two-col { grid-template-columns: 1fr; gap: 0.35em; }
+
+/* ============================================================ control layer */
+.touch-layer {
+  position: fixed; inset: 0; z-index: 5;
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  font-family: var(--font);
+}
+.touch-layer[hidden] { display: none; }
+
+/* floating move stick */
+.t-stick {
+  position: absolute; left: 0; top: 0;
+  width: var(--t-stick, 96px); height: var(--t-stick, 96px);
+  border-radius: 50%;
+  border: 2px solid rgba(220, 210, 255, 0.35);
+  background: radial-gradient(rgba(40, 32, 80, 0.32), rgba(40, 32, 80, 0.12));
+  pointer-events: none;
+}
+.t-stick[hidden] { display: none; }
+.t-knob {
+  position: absolute; left: 50%; top: 50%;
+  width: 44%; height: 44%; margin: -22% 0 0 -22%;
+  border-radius: 50%;
+  background: rgba(235, 230, 255, 0.55);
+  box-shadow: 0 0 12px rgba(160, 140, 255, 0.55);
+}
+/* resting hint where the left thumb goes; hidden while the stick is in use */
+.t-stick.ghost {
+  top: auto; left: calc(max(12px, env(safe-area-inset-left)) + 10px); bottom: 14px;
+  opacity: 0.3; transition: opacity 0.2s;
+}
+.t-stick.ghost.away { opacity: 0; }
+.t-ghost-label {
+  position: absolute; left: -2em; right: -2em; top: -1.6em; text-align: center;
+  font-size: 10px; font-weight: 900; letter-spacing: 0.25em; color: var(--ink-dim);
+}
+
+/* aim stick: a press on an element button turns into it, in that element's colour; it attacks while held */
+.t-aim { --c: #fff; border-color: color-mix(in srgb, var(--c) 70%, transparent); background: radial-gradient(color-mix(in srgb, var(--c) 22%, transparent), rgba(40, 32, 80, 0.12)); }
+.t-aim .t-knob { background: color-mix(in srgb, var(--c) 70%, #fff); box-shadow: 0 0 14px var(--c); }
+.t-aim.earth { border-style: dashed; } /* earth slams when the thumb lifts */
+
+/* element circle: water top, fire right, air bottom, earth left, like the cycle on the menu */
+.t-diamond {
+  position: absolute;
+  right: calc(max(8px, env(safe-area-inset-right)) + 4px); bottom: 8px;
+  width: var(--t-diamond, 150px); height: var(--t-diamond, 150px);
+}
+.t-ring { position: absolute; left: 18%; top: 18%; width: 64%; height: 64%; pointer-events: none; }
+.t-pad, .t-btn {
+  position: absolute;
+  width: var(--t-pad, 52px); height: var(--t-pad, 52px);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  overflow: hidden;
+  transition: transform 0.08s, background 0.12s, border-color 0.12s, box-shadow 0.12s, opacity 0.15s;
+}
+.t-pad {
+  --c: #fff;
+  color: var(--c);
+  background: rgba(12, 9, 24, 0.42);
+  border: 2px solid color-mix(in srgb, var(--c) 50%, transparent);
+}
+.t-icon { width: 46%; height: 46%; display: block; margin-top: -12%; pointer-events: none; }
+.t-icon svg { width: 100%; height: 100%; display: block; }
+.t-name {
+  position: absolute; left: 0; right: 0; bottom: 17%;
+  text-align: center; font-size: 8px; font-weight: 900; letter-spacing: 0.02em; line-height: 1;
+  pointer-events: none;
+}
+@media (min-height: 600px) { .t-name { font-size: 10px; letter-spacing: 0.06em; } }
+.t-cd {
+  position: absolute; inset: 0; pointer-events: none;
+  background: conic-gradient(rgba(5, 3, 12, 0.6) var(--cd, 0deg), transparent 0);
+}
+.t-pad.active {
+  background: color-mix(in srgb, var(--c) 32%, rgba(12, 9, 24, 0.5));
+  border-color: var(--c);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--c) 70%, transparent);
+  transform: scale(1.08);
+}
+.t-pad.hint { animation: t-hint 0.5s ease-in-out infinite alternate; }
+@keyframes t-hint {
+  from { box-shadow: 0 0 0 0 transparent; }
+  to { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 75%, transparent), 0 0 18px var(--c); }
+}
+.t-pad.down, .t-btn.down { transform: scale(0.92); }
+/* the player is underneath: let the fight show through (the buttons still work) */
+.t-diamond.faded, .t-btn.faded { opacity: 0.3; }
+.t-diamond { transition: opacity 0.15s; }
+.t-diamond.holding { opacity: 0.15; } /* the right thumb is on the aim stick: the circle steps back */
+
+/* DASH: left of the diamond, at the bottom; BLOW above it */
+.t-btn {
+  color: #cfe9ff;
+  background: rgba(12, 9, 24, 0.45);
+  border: 2px solid rgba(190, 175, 255, 0.4);
+}
+.t-dash {
+  width: calc(var(--t-pad, 52px) * 1.2); height: calc(var(--t-pad, 52px) * 1.2);
+  right: calc(max(8px, env(safe-area-inset-right)) + 4px + var(--t-diamond, 150px) + 6px);
+  bottom: 8px;
+}
+.t-dash .t-name { bottom: auto; top: 50%; transform: translateY(-50%); font-size: 11px; }
+.t-dash.ready { border-color: #9ff0ff; box-shadow: 0 0 12px rgba(120, 230, 255, 0.5); color: #9ff0ff; }
+.t-nova {
+  right: calc(max(8px, env(safe-area-inset-right)) + 4px + var(--t-diamond, 150px) + 6px + var(--t-pad, 52px) * 0.1);
+  bottom: calc(8px + var(--t-pad, 52px) * 1.2 + 8px);
+  color: var(--ink-dim);
+}
+.t-nova .t-name { bottom: auto; top: 50%; transform: translateY(-50%); font-size: 10px; }
+.t-fill {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 0;
+  background: linear-gradient(0deg, rgba(122, 77, 255, 0.55), rgba(255, 211, 107, 0.35));
+  pointer-events: none;
+}
+.t-nova.ready {
+  color: #241a00; border-color: var(--gold);
+  background: radial-gradient(#fff2a8, #ffb347);
+  animation: t-ready 0.7s ease-in-out infinite alternate;
+}
+.t-nova.ready .t-fill { display: none; }
+@keyframes t-ready { to { box-shadow: 0 0 22px rgba(255, 211, 107, 0.95); } }
+
+/* pause: top-right corner */
+.t-pause {
+  width: 38px; height: 38px; padding: 8px;
+  top: max(6px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right));
+  border-radius: 10px;
+  color: var(--ink);
+}
+.t-pause svg { width: 100%; height: 100%; display: block; pointer-events: none; }
+
+/* auto-aim target ring: gold when the held element beats the target, red dashes when it is resisted */
+.t-reticle {
+  position: absolute; left: 0; top: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+}
+.t-reticle[hidden] { display: none; }
+.t-reticle.x2 { border-color: var(--gold); box-shadow: 0 0 10px rgba(255, 211, 107, 0.8); }
+.t-reticle.half { border: 2px dashed rgba(255, 90, 110, 0.85); }
+
+/* first-wave coaching next to each thumb's controls (src/touch.js shows it during wave 1) */
+.t-coach {
+  position: absolute; pointer-events: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; line-height: 1.5; text-transform: uppercase;
+  color: var(--ink-dim); text-shadow: 0 1px 3px #000, 0 0 8px #000;
+  opacity: 0; transition: opacity 0.6s;
+}
+.t-coach b { color: var(--ink); font-weight: 900; }
+.touch-layer.coach .t-coach { opacity: 1; }
+.t-coach-move { left: calc(max(12px, env(safe-area-inset-left)) + 10px); bottom: calc(14px + var(--t-stick, 96px) + 2.4em); }
+.t-coach-aim {
+  right: calc(max(8px, env(safe-area-inset-right)) + 4px); bottom: calc(8px + var(--t-diamond, 150px) + 0.6em);
+  text-align: right;
+}
+
+/* ============================================================ portrait notice */
+.t-rotate { display: none; }
+@media (orientation: portrait) {
+  html.touch .t-rotate {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    padding: 2em; text-align: center;
+    background: radial-gradient(ellipse at center, #1a1433, #0b0814);
+    color: var(--ink); font-family: var(--font);
+  }
+}
+.t-rotate-box svg { width: 72px; height: 72px; color: var(--gold); animation: t-turn 2.2s ease-in-out infinite; }
+@keyframes t-turn { 0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }
+.t-rotate-title { margin: 0.8em 0 0.4em; font-size: 20px; font-weight: 900; letter-spacing: 0.06em; }
+.t-rotate-sub { margin: 0 auto; max-width: 22em; font-size: 14px; line-height: 1.45; color: var(--ink-dim); }
