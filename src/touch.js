@@ -194,7 +194,13 @@ export function createTouch(opts = {}) {
   pause.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
   pause.setAttribute('aria-label', 'Pause');
 
-  layer.append(ghost, stick, aimStick, reticle, diamond, dash, nova, pause);
+  // first-wave coaching, next to each thumb's controls
+  const coachMove = h('div', 't-coach t-coach-move');
+  coachMove.innerHTML = '<b>Hold</b> anywhere on the left to move<br><b>Quick swipe</b> to dash';
+  const coachAim = h('div', 't-coach t-coach-aim');
+  coachAim.innerHTML = '<b>Hold an element</b> to attack<br><b>Hold still</b>: auto-aim · <b>drag</b>: aim<br><b>Earth</b> attacks when you lift';
+
+  layer.append(ghost, stick, aimStick, reticle, diamond, dash, nova, pause, coachMove, coachAim);
   document.body.appendChild(layer);
 
   // portrait notice (CSS shows it on touch devices held upright)
@@ -516,6 +522,7 @@ export function createTouch(opts = {}) {
     // held upright mid-run: pause (the rotate notice covers the screen)
     if (playing && vh > vw && opts.onPause) opts.onPause();
     if (!playing) return;
+    set('coach', state.wave === 1, (v) => layer.classList.toggle('coach', v));
     const p = state.player;
     if (!rects) rects = fadeable.map((b) => b.getBoundingClientRect());
     const px = ox + p.x * sc;

@@ -72,14 +72,11 @@ const CONTROLS = [
 
 // touch devices (src/touch.js sets html.touch before the UI is built)
 const TOUCH_CONTROLS = [
-  [['Left thumb'], 'Move'],
-  [['Flick'], 'Dash (or DASH)'],
-  [['Element'], 'Hold: switch + attack'],
-  [['Hold still'], 'Auto-aim'],
-  [['Drag'], 'Aim by hand'],
-  [['Earth'], 'Slams on release'],
-  [['BLOW'], 'Ultimate'],
-  [['II'], 'Pause'],
+  [['Left thumb'], 'Move · quick swipe: dash'],
+  [['Hold element'], 'Switch + attack'],
+  [['Still / drag'], 'Auto-aim / aim by hand'],
+  [['Earth'], 'Attacks when you lift'],
+  [['BLOW', 'II'], 'Nova · pause'],
 ];
 const isTouch = () => typeof document !== 'undefined' && document.documentElement.classList.contains('touch');
 

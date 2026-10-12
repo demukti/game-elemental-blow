@@ -18,11 +18,14 @@ html.touch #fullscreen { right: auto; left: max(0.8em, env(safe-area-inset-left)
 /* menus on short landscape phones: keep PLAY and the cycle on screen */
 @media (max-height: 500px) {
   html.touch .menu { gap: 1.2em; padding: 0.8em; }
-  html.touch .menu-side .panel:last-child { display: none; } /* controls list: the HUD shows them in play */
   html.touch .title .t1 { font-size: 2.2em; }
   html.touch .title .t2 { font-size: 4.2em; }
   html.touch .tagline { display: none; }
-  html.touch .cycle-wrap { width: 8.5em; }
+  html.touch .cycle-wrap { width: 6.5em; }
+  html.touch .menu-side { gap: 0.6em; }
+  html.touch .menu-side .panel { padding: 0.6em 0.9em; }
+  html.touch .menu-side h2 { margin-bottom: 0.4em; }
+  html.touch .cycle-text { margin: 0.3em 0 0; }
   html.touch .cycle-sub { display: none; }
   html.touch .menu-main { gap: 0.6em; }
   html.touch .menu .scores .board { max-height: 6.5em; }
@@ -32,6 +35,9 @@ html.touch #fullscreen { right: auto; left: max(0.8em, env(safe-area-inset-left)
   html.touch .ov-title, html.touch .dialog .ov-title { font-size: 2.4em; }
   html.touch .card { padding: 0.8em; }
 }
+
+/* touch controls list (menu): one column, the labels are longer than key names */
+html.touch .controls.two-col { grid-template-columns: 1fr; gap: 0.35em; }
 
 /* ============================================================ control layer */
 .touch-layer {
@@ -177,6 +183,21 @@ html.touch #fullscreen { right: auto; left: max(0.8em, env(safe-area-inset-left)
 .t-reticle[hidden] { display: none; }
 .t-reticle.x2 { border-color: var(--gold); box-shadow: 0 0 10px rgba(255, 211, 107, 0.8); }
 .t-reticle.half { border: 2px dashed rgba(255, 90, 110, 0.85); }
+
+/* first-wave coaching next to each thumb's controls (src/touch.js shows it during wave 1) */
+.t-coach {
+  position: absolute; pointer-events: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; line-height: 1.5; text-transform: uppercase;
+  color: var(--ink-dim); text-shadow: 0 1px 3px #000, 0 0 8px #000;
+  opacity: 0; transition: opacity 0.6s;
+}
+.t-coach b { color: var(--ink); font-weight: 900; }
+.touch-layer.coach .t-coach { opacity: 1; }
+.t-coach-move { left: calc(max(12px, env(safe-area-inset-left)) + 10px); bottom: calc(14px + var(--t-stick, 96px) + 2.4em); }
+.t-coach-aim {
+  right: calc(max(8px, env(safe-area-inset-right)) + 4px); bottom: calc(8px + var(--t-diamond, 150px) + 0.6em);
+  text-align: right;
+}
 
 /* ============================================================ portrait notice */
 .t-rotate { display: none; }
